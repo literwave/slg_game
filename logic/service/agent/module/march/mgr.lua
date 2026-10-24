@@ -50,7 +50,7 @@ local function begin_march(user, troop, target_type, target_id, ex, ey, ox, oy)
 	if troop:is_gathering() then
 		leave_gather(user, troop)
 	end
-	local cost = math.max(1, math.ceil(MARCH_PATH.length(path) / CONST.MARCH_SPEED))
+	local cost = MARCH_PATH.march_seconds(path, DATA_COMMON.get_march_speed())
 	troop:set_march({
 		state = CONST.MARCH_STATE.MOVING,
 		target_type = target_type,

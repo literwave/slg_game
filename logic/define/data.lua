@@ -213,6 +213,11 @@ function get_soldier_max()
 	return get_value_by_key(8)
 end
 
+-- 每秒走的格子数，可以是小数。Global Id=17 的 value1 是整数，装不下 0.5
+function get_march_speed()
+	return 0.5
+end
+
 function get_main_task_head()
 	return main_task_head
 end

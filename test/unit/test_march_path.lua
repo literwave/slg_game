@@ -14,6 +14,13 @@ end
 
 local T = {}
 
+function T.fractional_cell_speed()
+	local M = load_path_mod()
+	local far = {{_x = 0, _y = 0}, {_x = 10, _y = 0}}
+	assert(M.march_seconds(far, 0.5) == 20)
+	assert(M.march_seconds({{_x = 0, _y = 0}, {_x = 1, _y = 0}}, 0.25) == 4)
+end
+
 function T.pos_along_polyline()
 	local M = load_path_mod()
 	-- (0,0) -> (3,0) -> (3,4)，总长 7，用 7 秒走完

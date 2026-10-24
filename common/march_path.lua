@@ -15,6 +15,14 @@ function length(path)
 	return total
 end
 
+-- cells_per_sec 可以是小数。路程是格子坐标上的长度，耗时向上取整，最少 1 秒
+function march_seconds(path, cells_per_sec)
+	if not cells_per_sec or cells_per_sec <= 0 then
+		return 1
+	end
+	return math.max(1, math.ceil(length(path) / cells_per_sec))
+end
+
 function first_pos(path)
 	local p = path[1]
 	if not p then

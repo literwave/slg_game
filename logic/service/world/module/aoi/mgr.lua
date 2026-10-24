@@ -541,7 +541,7 @@ local function winner_plan(e)
 		return {go_home = true}
 	end
 	local now = TIME.now()
-	local cost = math.max(1, math.ceil(MARCH_PATH.length(path) / CONST.MARCH_SPEED))
+	local cost = MARCH_PATH.march_seconds(path, DATA_COMMON.get_march_speed())
 	e.path = path
 	e.start_time = now
 	e.end_time = now + cost
