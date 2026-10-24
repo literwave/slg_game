@@ -43,6 +43,9 @@ end
 
 function get_build_by_bid(user_id, bid)
 	local build_tbl = try_init_user_builds(user_id)
+	if not build_tbl then
+		return
+	end
 	return build_tbl[bid]
 end
 
@@ -51,21 +54,17 @@ function get_user_build_tbl(user_id)
 end
 
 local function init_user_builds(user_id)
-	try_init_user_builds(user_id)
-	if next(all_user_build_tbl[user_id]) then
+	local build_tbl = try_init_user_builds(user_id)
+	if not build_tbl or next(build_tbl) then
 		return
 	end
-	for _, init_lev in ipairs(DATA_COMMON.get_initial_build_list()) do
-		if type(init_lev) == "table" then
-			for bid, level in pairs(init_lev) do
-				create_build({
-					_user_id = user_id,
-					_bid = bid,
-					_level = level,
-				})
-				EVENT.dispatch(CONST.EVENT.ON_BUILD_LEVEL, user_id, bid, level)
-			end
-		end
+	for _, info in ipairs(DATA_COMMON.get_initial_build_list()) do
+		create_build({
+			_user_id = user_id,
+			_bid = info.bid,
+			_level = info.level,
+		})
+		EVENT.dispatch(CONST.EVENT.ON_BUILD_LEVEL, user_id, info.bid, info.level)
 	end
 end
 
@@ -94,13 +93,69 @@ function sync_all_build_to_client(user_id)
 	end
 end
 
+local function tell(user_id, msg)
+	USER_MGR.tell_me(user_id, msg)
+end
+
+local function limit_met(user_id, limits)
+	for _, limit in ipairs(limits or EMPTY_TABLE) do
+		local need = get_build_by_bid(user_id, limit.bid)
+		if not need or need:get_level() < limit.lev then
+			return false
+		end
+	end
+	return true
+end
+
+-- 粮木铁石是道具 1、2、3、5。数量为 0 的不放进消耗列表
+local function cost_list_of(conf)
+	local list = {}
+	local function add(count, item_id)
+		if count and count > 0 then
+			list[#list + 1] = {
+				cost_type = CONST.COST_TYPE.ITEM,
+				itemId = item_id,
+				count = count,
+			}
+		end
+	end
+	add(conf.CostGrain, CONST.BUILD_COST_ITEM.GRAIN)
+	add(conf.CostWood, CONST.BUILD_COST_ITEM.WOOD)
+	add(conf.CostIron, CONST.BUILD_COST_ITEM.IRON)
+	add(conf.CostStone, CONST.BUILD_COST_ITEM.STONE)
+	return list
+end
+
+local function pay_level(user_id, conf)
+	local list = cost_list_of(conf)
+	if #list < 1 then
+		return true
+	end
+	return ITEM_MGR.del_cost_list(user_id, list, {CONST.FLOW_REASON.BUILD, conf.Id})
+end
+
 local function on_create_build(fd, packet)
 	local user_id = USER_MGR.get_user_id_by_fd(fd)
 	local bid = packet.bid
-	if get_build_by_bid(user_id, bid) then
+	if not user_id or not bid then
 		return
 	end
-	if not DATA_COMMON.get_build_type_by_id(bid) then
+	local detail = DATA_COMMON.get_build_detail(bid)
+	if not detail then
+		tell(user_id, "没有这个建筑")
+		return
+	end
+	if get_build_by_bid(user_id, bid) then
+		tell(user_id, "建筑已存在")
+		return
+	end
+	if not limit_met(user_id, detail.CreateLimit) then
+		tell(user_id, "前置建筑不足")
+		return
+	end
+	local conf = DATA_COMMON.get_build_level_conf(bid, 1)
+	if not conf or not pay_level(user_id, conf) then
+		tell(user_id, "资源不足")
 		return
 	end
 	local build = create_build({
@@ -114,27 +169,37 @@ end
 
 local function on_up_build(fd, packet)
 	local user_id = USER_MGR.get_user_id_by_fd(fd)
-	local build = get_build_by_bid(user_id, packet.bid)
+	local bid = packet and packet.bid
+	if not user_id or not bid then
+		return
+	end
+	local build = get_build_by_bid(user_id, bid)
 	if not build then
+		tell(user_id, "没有这个建筑")
 		return
 	end
 	local b_type = build:get_build_type()
-	if build:get_level() >= DATA_COMMON.get_build_max_level(b_type) then
+	local next_lv = build:get_level() + 1
+	if next_lv > DATA_COMMON.get_build_max_level(b_type) then
+		tell(user_id, "已满级")
 		return
 	end
-	local next_conf = DATA_COMMON.get_build_level_conf(b_type, build:get_level() + 1)
+	local next_conf = DATA_COMMON.get_build_level_conf(b_type, next_lv)
 	if not next_conf then
+		tell(user_id, "已满级")
 		return
 	end
-	for _, limit in ipairs(next_conf.ItemLimit or EMPTY_TABLE) do
-		local need_build = get_build_by_bid(user_id, limit.bid)
-		if not need_build or need_build:get_level() < limit.lev then
-			return
-		end
+	if not limit_met(user_id, next_conf.UpgradeLimit) then
+		tell(user_id, "前置建筑不足")
+		return
 	end
-	build:set_level(build:get_level() + 1)
+	if not pay_level(user_id, next_conf) then
+		tell(user_id, "资源不足")
+		return
+	end
+	build:set_level(next_lv)
 	build:sync_to_client()
-	EVENT.dispatch(CONST.EVENT.ON_BUILD_LEVEL, user_id, packet.bid, build:get_level())
+	EVENT.dispatch(CONST.EVENT.ON_BUILD_LEVEL, user_id, bid, next_lv)
 end
 
 function __init__()

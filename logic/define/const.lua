@@ -61,10 +61,19 @@ FLOW_REASON = {
 	ALLIANCE = 11,
 	GATHER = 12,
 	MOVE_CITY = 13,
+	BUILD = 14,
 }
 
 -- 迁主城消耗的道具，对应 Item.Id=1001 迁城令
 MOVE_CITY_ITEM = 1001
+
+-- 建筑消耗的四种资源，对应 Item.Id。粮草/木材/铁矿/石料
+BUILD_COST_ITEM = {
+	GRAIN = 1,
+	WOOD = 2,
+	IRON = 3,
+	STONE = 5,
+}
 
 ONE_HOUR_SEC = 3600
 ONE_DAY_HOUR = 24

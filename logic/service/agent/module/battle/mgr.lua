@@ -126,7 +126,7 @@ local function battle_side_pto(side)
 			pos = u.pos,
 			cfgId = u.cfg_id,
 			level = u.level,
-			soldier = {count = u.count, hurtCount = u.hurt},
+			soldier = {count = u.soldier, hurtCount = u.hurt},
 		}
 	end
 	return {ownerId = side.owner_id, name = side.name, power = side.power, units = units}

@@ -18,8 +18,14 @@ local function trim(doc)
 	end
 end
 
+-- count 在存档里是可用 + 伤兵，协议里的 count 只计可用兵力
 local function soldier_pto(count, hurt)
-	return {count = count, hurtCount = hurt}
+	hurt = hurt or 0
+	local healthy = count - hurt
+	if healthy < 0 then
+		healthy = 0
+	end
+	return {count = healthy, hurtCount = hurt}
 end
 
 local function brief_pto(r)

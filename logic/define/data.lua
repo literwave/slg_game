@@ -64,8 +64,10 @@ end
 -- 二次处理配置表的内容。放在 __init__ 里：热更 / 重载配置时会先恢复旧模块变量再调 __init__，这里才能重算
 local function init_config_data()
 	init_build_list = {}
-	for _, conf in pairs(DATA_BUILD_DETAIL) do
-		table.insert(init_build_list, conf.InitLev)
+	for bid, conf in pairs(DATA_BUILD_DETAIL) do
+		if conf.InitLev and conf.InitLev > 0 then
+			init_build_list[#init_build_list + 1] = {bid = bid, level = conf.InitLev}
+		end
 	end
 	-- 配置加载后按 Id 索引，没有"第一行"了，主线起点取 Order 最小的
 	main_task_head = nil
@@ -164,8 +166,17 @@ function get_initial_build_list()
 	return init_build_list
 end
 
+function get_build_detail(bid)
+	return DATA_BUILD_DETAIL[bid]
+end
+
+-- BuildingLv.BuildingType 指向 BuildingDetail.Id，协议里的 bid 也是这个 Id
 function get_build_type_by_id(bid)
-	return DATA_BUILD_CONF.builds[bid].build_type
+	local conf = DATA_BUILD_DETAIL[bid]
+	if not conf then
+		return
+	end
+	return conf.Id
 end
 
 -- Lottery 表的 Id 就是一次抽几发；没配的抽数不允许

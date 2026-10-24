@@ -1,5 +1,5 @@
 # troop persist (agent USER_TROOP_COL.dat)
-# pos_map: 站位 -> 英雄与带兵
+# pos_map: 站位 -> 英雄与带兵。_soldier_cnt = 可用 + 伤兵，_hurt_cnt = 伤兵
 # _path: 行军拐点（world 寻路结果，含起点和终点），起止坐标取首尾
 
 pos_info {

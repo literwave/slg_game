@@ -13,8 +13,8 @@ local function create_troop(oci)
 end
 
 local function try_init_user_troops(user_id)
-	local doc, is_loaded = ORM.load(MONGO_SLAVE.COL.USER_TROOP, user_id, ORM.CLS_USER_TROOP_DOC)
-	if is_loaded then
+	local doc = ORM.load(MONGO_SLAVE.COL.USER_TROOP, user_id, ORM.CLS_USER_TROOP_DOC)
+	if not all_user_troop_tbl[user_id] then
 		all_user_troop_tbl[user_id] = {}
 		for _, troop_data in pairs(doc._troops) do
 			create_troop(troop_data)
@@ -48,67 +48,36 @@ function on_user_logout(user_id)
 	end
 end
 
+local function num(v)
+	return tonumber(v) or 0
+end
+
+-- pbc 把 map 解成 {key, value} 数组，也兼容直接用站位当 key 的表
 local function parse_pos_list(pos_map)
 	local list = {}
 	if not pos_map then
 		return list
 	end
+	local function add_slot(pos, value)
+		value = value or {}
+		local soldier = value.soldier or {}
+		list[#list + 1] = {
+			pos = math.floor(num(pos)),
+			hero_idx = math.floor(num(value.heroIdx)),
+			healthy = math.floor(num(soldier.count)),
+		}
+	end
 	local first = pos_map[1]
 	if first and first.key ~= nil then
 		for _, entry in ipairs(pos_map) do
-			local value = entry.value or {}
-			local soldier = value.soldier or {}
-			list[#list + 1] = {
-				pos = entry.key,
-				hero_idx = value.heroIdx,
-				count = soldier.count or 0,
-				hurt = soldier.hurtCount or 0,
-			}
+			add_slot(entry.key, entry.value)
 		end
 		return list
 	end
 	for pos, value in pairs(pos_map) do
-		local soldier = value.soldier or {}
-		list[#list + 1] = {
-			pos = pos,
-			hero_idx = value.heroIdx,
-			count = soldier.count or 0,
-			hurt = soldier.hurtCount or 0,
-		}
+		add_slot(pos, value)
 	end
 	return list
-end
-
-local function check_edit(user_id, troop_idx, pos_list)
-	if not troop_idx or troop_idx < 1 or troop_idx > DATA_COMMON.get_troop_max_cnt() then
-		return
-	end
-	local troop = get_troop(user_id, troop_idx)
-	if troop and troop:is_marching() then
-		return
-	end
-	local used_hero = {}
-	local used_pos = {}
-	local pos_cnt = DATA_COMMON.get_troop_pos_cnt()
-	for _, info in ipairs(pos_list) do
-		local pos = info.pos
-		local hero_idx = info.hero_idx
-		if not hero_idx or not pos or pos < 1 or pos > pos_cnt then
-			return
-		end
-		if info.count < 0 or info.hurt < 0 or info.hurt > info.count then
-			return
-		end
-		if used_hero[hero_idx] or used_pos[pos] then
-			return
-		end
-		if not HERO_MGR.get_hero_by_type(user_id, hero_idx) then
-			return
-		end
-		used_hero[hero_idx] = true
-		used_pos[pos] = true
-	end
-	return true
 end
 
 local function sync_all_troop(fd, user_id)
@@ -139,74 +108,97 @@ local function on_edit_troop(fd, packet)
 		return
 	end
 	local user_id = user:get_user_id()
-	local troop_idx = troop_info.troopIdx
-	local pos_list = parse_pos_list(troop_info.posMap)
-	if not check_edit(user_id, troop_idx, pos_list) then
+	local troop_idx = math.floor(num(troop_info.troopIdx))
+	if troop_idx < 1 or troop_idx > DATA_COMMON.get_troop_max_cnt() then
+		USER_MGR.tell_me(user_id, "部队编号无效")
 		return
 	end
-	try_init_user_troops(user_id)
-	local troop = get_troop(user_id, troop_idx)
-	local old_sum = 0
-	if troop then
-		old_sum = troop:get_soldier_sum()
+	local pos_list = parse_pos_list(troop_info.posMap)
+	local troops = get_user_troops(user_id)
+	local troop = troops[troop_idx]
+	if troop and troop:is_marching() then
+		USER_MGR.tell_me(user_id, "部队在城外")
+		return
 	end
-	local new_sum = 0
-	local old_hurt = {}
+	local pos_cnt = DATA_COMMON.get_troop_pos_cnt()
+	local used_hero = {}
+	local used_pos = {}
+	for _, info in ipairs(pos_list) do
+		if info.hero_idx < 1 or not HERO_MGR.get_hero_by_type(user_id, info.hero_idx) then
+			USER_MGR.tell_me(user_id, "没有这个武将")
+			return
+		end
+		if info.pos < 1 or info.pos > pos_cnt then
+			USER_MGR.tell_me(user_id, "站位无效")
+			return
+		end
+		if used_pos[info.pos] or used_hero[info.hero_idx] then
+			USER_MGR.tell_me(user_id, "武将或站位重复")
+			return
+		end
+		if info.healthy < 0 then
+			USER_MGR.tell_me(user_id, "兵力无效")
+			return
+		end
+		used_hero[info.hero_idx] = true
+		used_pos[info.pos] = true
+	end
+	-- 可用兵力在城池和这支部队之间调。伤兵跟着武将走，客户端传 0 也不会把伤兵清掉
+	local pool = user:get_soldier_cnt()
 	if troop then
 		for _, info in pairs(troop:get_pos_tbl()) do
-			old_hurt[info._hero_idx] = info._hurt_cnt
-		end
-	end
-	for _, info in ipairs(pos_list) do
-		new_sum = new_sum + info.count
-		local kept = old_hurt[info.hero_idx] or 0
-		if info.hurt > kept then
-			info.hurt = kept
-		end
-		if info.hurt > info.count then
-			info.hurt = info.count
-		end
-	end
-	local strips = {}
-	local back = 0
-	for _, info in ipairs(pos_list) do
-		for idx, other in pairs(get_user_troops(user_id)) do
-			if idx ~= troop_idx then
-				local pos, pinfo = other:find_hero(info.hero_idx)
-				if pos then
-					if other:is_marching() then
-						return
-					end
-					back = back + pinfo._soldier_cnt
-					strips[#strips + 1] = {idx = idx, pos = pos}
-					break
-				end
+			local healthy, hurt = troop:slot_healthy(info)
+			pool = pool + healthy
+			if not used_hero[info._hero_idx] then
+				pool = pool + hurt
 			end
 		end
 	end
-	local city_after = user:get_soldier_cnt() + old_sum + back
-	local keep = deployed_soldier(user_id) - old_sum - back
-	if new_sum > city_after or new_sum + keep > DATA_COMMON.get_soldier_max() then
+	local strips = {}
+	local need = 0
+	for _, info in ipairs(pos_list) do
+		need = need + info.healthy
+		info.hurt = 0
+		for idx, other in pairs(troops) do
+			local pos, pinfo = other:find_hero(info.hero_idx)
+			if pos then
+				local healthy, hurt = other:slot_healthy(pinfo)
+				info.hurt = hurt
+				if idx ~= troop_idx then
+					if other:is_marching() then
+						USER_MGR.tell_me(user_id, "武将正在行军")
+						return
+					end
+					pool = pool + healthy
+					strips[#strips + 1] = {troop = other, pos = pos}
+				end
+				break
+			end
+		end
+	end
+	if need > pool then
+		USER_MGR.tell_me(user_id, "兵力不足")
 		return
 	end
 	for _, strip in ipairs(strips) do
-		get_troop(user_id, strip.idx):set_pos(strip.pos, nil)
+		strip.troop:set_pos(strip.pos, nil)
 	end
-	if not troop then
+	if not troop and #pos_list > 0 then
 		troop = create_troop({
 			_user_id = user_id,
 			_troop_idx = troop_idx,
 		})
 	end
-	troop:clear_pos()
-	for _, info in ipairs(pos_list) do
-		troop:set_pos(info.pos, info.hero_idx, info.count, info.hurt)
+	if troop then
+		troop:clear_pos()
+		for _, info in ipairs(pos_list) do
+			troop:set_pos(info.pos, info.hero_idx, info.healthy + info.hurt, info.hurt)
+		end
 	end
-	user:set_soldier_cnt(city_after - new_sum)
+	user:set_soldier_cnt(pool - need)
 	user:sync_soldier()
-	for_caller.s2c_edit_troop(fd, {
-		troopInfo = troop:get_pto_info(),
-	})
+	local pto = troop and troop:get_pto_info() or {troopIdx = troop_idx, posMap = {}}
+	for_caller.s2c_edit_troop(fd, {troopInfo = pto})
 	if #strips > 0 then
 		sync_all_troop(fd, user_id)
 	end

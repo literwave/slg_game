@@ -22,20 +22,15 @@ local function pos_to_idx(pos, w)
 	return math.floor(pos.y) * w + math.floor(pos.x) + 1
 end
 
--- 已经落库的出生点占住，避免重启后分到同一格。没有出生点的旧号不补
+-- 已经落库的出生点占住，避免重启后分到同一格
 local function load_used_birth()
 	local all = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO)
-	local miss = 0
+	local w = map_obj:get_width()
 	for _, dat in pairs(all) do
 		if dat._has_birth then
-			local idx = pos_to_idx({x = dat._birth_x, y = dat._birth_y}, map_obj:get_width())
-			if not map_obj:hold_birth_idx(idx) then
-				miss = miss + 1
-			end
+			local idx = pos_to_idx({x = dat._birth_x, y = dat._birth_y}, w)
+			assert(map_obj:hold_birth_idx(idx), string.format("birth pos blocked %s %s,%s", dat._user_id, dat._birth_x, dat._birth_y))
 		end
-	end
-	if miss > 0 then
-		skynet.error("birth pos not on empty cell", miss)
 	end
 end
 

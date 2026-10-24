@@ -49,6 +49,16 @@ function cls_troop:get_soldier_sum()
 	return sum
 end
 
+-- _soldier_cnt 是可用 + 伤兵。协议 p_soldier_info.count 只计可用兵力
+function cls_troop:slot_healthy(info)
+	local hurt = info._hurt_cnt
+	local healthy = info._soldier_cnt - hurt
+	if healthy < 0 then
+		healthy = 0
+	end
+	return healthy, hurt
+end
+
 function cls_troop:has_hero()
 	for _ in pairs(self:get_pos_tbl()) do
 		return true
@@ -168,7 +178,7 @@ function cls_troop:get_pto_info()
 			value = {
 				heroIdx = info._hero_idx,
 				soldier = {
-					count = info._soldier_cnt,
+					count = self:slot_healthy(info),
 					hurtCount = info._hurt_cnt,
 				},
 			},
