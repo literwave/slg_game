@@ -6,6 +6,7 @@ local protobuf = require "protobuf"
 local M = {}
 
 local ID = {}
+local NAME = {}
 local loaded = false
 
 function M.init()
@@ -16,8 +17,32 @@ function M.init()
 	dofile("../game_common/server/net_pb.lua")
 	for name, id in pairs(PTONAME_TO_ID) do
 		ID[name] = id
+		NAME[id] = name
 	end
-	protobuf.register_file("../game_common/pb/login.pb")
+	local proto_files = {
+		"../game_common/pb/common.pb",
+		"../game_common/pb/login.pb",
+		"../game_common/pb/heartbeat.pb",
+		"../game_common/pb/hero.pb",
+		"../game_common/pb/reward.pb",
+		"../game_common/pb/build.pb",
+		"../game_common/pb/user.pb",
+		"../game_common/pb/lottery.pb",
+		"../game_common/pb/item.pb",
+		"../game_common/pb/systemopen.pb",
+		"../game_common/pb/world.pb",
+		"../game_common/pb/task.pb",
+		"../game_common/pb/activity.pb",
+		"../game_common/pb/battle.pb",
+		"../game_common/pb/report.pb",
+		"../game_common/pb/rank.pb",
+		"../game_common/pb/alliance.pb",
+		"../game_common/pb/chat.pb",
+		"../game_common/pb/mail.pb",
+	}
+	for _, file in ipairs(proto_files) do
+		protobuf.register_file(file)
+	end
 end
 
 function M.id(name)
@@ -49,19 +74,31 @@ function M.recv(ws)
 	return string.unpack(">I2", data, 3), data:sub(5)
 end
 
--- 一直读到期望的协议号，中间的推送包跳过。只有登录相关的协议注册了 pb，其余只认协议号不解包
+-- 一直读到期望的协议号，中间的推送包跳过
 function M.recv_until(ws, name, is_decode)
-	local want = M.id(name)
+	local got, msg = M.recv_match(ws, {[name] = true}, is_decode and {[name] = true} or nil)
+	if not got then
+		return nil, msg
+	end
+	if is_decode then
+		return msg
+	end
+	return true
+end
+
+-- accept: 协议名 -> true。命中的才解码（decode 同样是名字集合）。推送直接跳过
+function M.recv_match(ws, accept, decode)
 	while true do
 		local id, body = M.recv(ws)
 		if not id then
 			return nil, body
 		end
-		if id == want then
-			if is_decode then
-				return protobuf.decode(ID_TO_PACK_NAME[id], body) or {}
+		local name = NAME[id]
+		if name and accept[name] then
+			if decode and decode[name] then
+				return name, protobuf.decode(ID_TO_PACK_NAME[id], body) or {}
 			end
-			return true
+			return name, true
 		end
 	end
 end

@@ -108,7 +108,7 @@ local function run_load()
 		end
 	end)
 
-	local total = {login = {}, req = {}, req_cnt = 0, login_fail = 0, req_fail = 0, timeout = 0, errors = {}}
+	local total = {login = {}, req = {}, req_cnt = 0, login_fail = 0, req_fail = 0, timeout = 0, reject = {}, errors = {}}
 	for _, w in ipairs(worker_list) do
 		local s = skynet.call(w, "lua", "wait")
 		for _, v in ipairs(s.login) do
@@ -122,6 +122,9 @@ local function run_load()
 		end
 		for _, k in ipairs({"req_cnt", "login_fail", "req_fail", "timeout"}) do
 			total[k] = total[k] + s[k]
+		end
+		for name, n in pairs(s.reject or {}) do
+			total.reject[name] = (total.reject[name] or 0) + n
 		end
 		for k, v in pairs(s.errors) do
 			total.errors[k] = (total.errors[k] or 0) + v
@@ -150,6 +153,18 @@ local function run_load()
 		summary_line(name, total.req[name])
 	end
 	local p99 = summary_line("all requests", all)
+	if next(total.reject) then
+		say("")
+		say("business reject (round trip ok, game refused):")
+		local names = {}
+		for name in pairs(total.reject) do
+			names[#names + 1] = name
+		end
+		table.sort(names)
+		for _, name in ipairs(names) do
+			say("  %5d  %s", total.reject[name], name)
+		end
+	end
 	if next(total.errors) then
 		say("")
 		say("errors:")

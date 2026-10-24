@@ -828,34 +828,28 @@ function step(now)
 	end
 end
 
--- 只盯这一拍的协程。战斗结算在 fork 里，挂起是允许的，不能算进帧
--- 热更时保留原始函数，避免包两层
-yield_raw = yield_raw or {}
-
-local function watch_yield(name)
-	local raw = yield_raw[name]
-	if not raw then
-		raw = skynet[name]
-		yield_raw[name] = raw
+-- 这一拍里禁止挂起。先摘掉，跑完再挂回去；帧里调用会直接报错
+-- 热更前如果包过一层，先换回原始函数
+if yield_raw then
+	for name, fn in pairs(yield_raw) do
+		skynet[name] = fn
 	end
-	skynet[name] = function(...)
-		if coroutine.running() == tick_co then
-			skynet.error(debug.traceback(string.format("世界帧里发生了挂起 skynet.%s", name), 2))
-		end
-		return raw(...)
-	end
+	yield_raw = nil
 end
 
-watch_yield("call")
-watch_yield("rawcall")
-watch_yield("sleep")
-watch_yield("wait")
+local YIELD_FUNC = {"call", "rawcall", "sleep", "wait"}
 
 local function tick()
-	tick_co = coroutine.running()
+	local saved = {}
+	for _, name in ipairs(YIELD_FUNC) do
+		saved[name] = skynet[name]
+		skynet[name] = nil
+	end
 	local t0 = TIME.now()
 	local ok, err = xpcall(step, debug.traceback, t0)
-	tick_co = nil
+	for name, fn in pairs(saved) do
+		skynet[name] = fn
+	end
 	if not ok then
 		skynet.error("世界帧执行出错\n" .. tostring(err))
 	end
