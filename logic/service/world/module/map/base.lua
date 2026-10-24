@@ -18,7 +18,7 @@ function cls_map:__init__(oci)
 		_size = self._cell_cnt,
 	})
 	self._birth_free = 0
-	-- 建议出生点。新号只从这里分，迁城可以落到其它空地
+	-- 野怪避开这些格子。新号出生不再受它限制
 	self._spawn = BITSET.cls_bit_set:New({
 		_size = self._cell_cnt,
 	})
@@ -111,39 +111,36 @@ function cls_map:relocate_birth(old_idx, new_idx)
 	return true
 end
 
--- 新号只占建议出生点，出生区满了就不再往资源州丢
-function cls_map:alloc_birth_idx()
-	local list = self._spawn_list
-	if self._spawn_free < 1 or #list < 1 then
+local function pick_free(self, pred)
+	if self._birth_free < 1 then
 		return
 	end
-	for _ = 1, 32 do
-		local idx = list[math.random(#list)]
-		if self:hold_birth_idx(idx) then
-			return idx
-		end
-	end
-	for i = 1, #list do
-		if self:hold_birth_idx(list[i]) then
-			return list[i]
-		end
-	end
-end
-
--- 野怪落在空地上，不占建议出生点
-function cls_map:alloc_wild_idx()
 	local n = self._cell_cnt
 	for _ = 1, 64 do
 		local idx = math.random(1, n)
-		if self._birth_ok:get(idx) and not self._spawn:get(idx) and self:hold_birth_idx(idx) then
+		if pred(self, idx) and self:hold_birth_idx(idx) then
 			return idx
 		end
 	end
 	local start = math.random(1, n)
 	for i = 0, n - 1 do
 		local idx = (start + i - 1) % n + 1
-		if self._birth_ok:get(idx) and not self._spawn:get(idx) and self:hold_birth_idx(idx) then
+		if pred(self, idx) and self:hold_birth_idx(idx) then
 			return idx
 		end
 	end
+end
+
+-- 新号落在任意还没占用、且不是阻挡的格子上
+function cls_map:alloc_birth_idx()
+	return pick_free(self, function(self, idx)
+		return self._birth_ok:get(idx)
+	end)
+end
+
+-- 野怪落在空地上，不占建议出生点
+function cls_map:alloc_wild_idx()
+	return pick_free(self, function(self, idx)
+		return self._birth_ok:get(idx) and not self._spawn:get(idx)
+	end)
 end

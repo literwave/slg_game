@@ -275,6 +275,18 @@ local function city_move_cost()
 	}
 end
 
+local function place_idle_troops(user)
+	if not user:has_birth_pos() then
+		return
+	end
+	local user_id = user:get_user_id()
+	for _, troop in pairs(TROOP_MGR.get_user_troops(user_id) or {}) do
+		if troop:get_march_state() == 0 and troop:has_hero() then
+			skynet.call(".world", "lua", "park_troop", user_id, troop:get_troop_idx(), user:get_birth_x(), user:get_birth_y())
+		end
+	end
+end
+
 local function troop_outside(user_id)
 	for _, troop in pairs(TROOP_MGR.get_user_troops(user_id) or {}) do
 		if troop:get_march_state() ~= 0 then
@@ -313,9 +325,11 @@ function try_move_city(user, x, y, cost)
 			return false, "迁城令不足"
 		end
 		user:set_birth_pos(x, y)
+		place_idle_troops(user)
 		return true
 	end
 	user:set_birth_pos(x, y)
+	place_idle_troops(user)
 	return true
 end
 

@@ -91,14 +91,36 @@ end
 
 local T = {}
 
+function T.parked_troop_is_visible()
+	local A = load_aoi()
+	A.park_troop(1, 1, 2, 0)
+	local view = A.focus(8, 0, 0)
+	assert(has_pto(view.enter, A.CONST.troop_entity_id(1, 1)), "a troop standing in the city is an entity")
+	assert(view.enter[1].entityType == 2)
+	clear_sends()
+	A.start_march({
+		user_id = 1,
+		troop_idx = 1,
+		path = line(2, 4),
+		start_time = 0,
+		end_time = 1,
+	})
+	local moved = aoi_pushes()
+	assert(#moved == 1)
+	assert(#moved[1].pack.update == 1, "marching updates the same troop instead of hiding it")
+	assert(moved[1].pack.update[1].path)
+end
+
 function T.bucket_edge()
 	local A = load_aoi()
-	A.upsert_city(1, 19, 0)
-	A.upsert_city(2, 100, 0)
-	local near = A.focus(10, 9, 0)
-	assert(has_pto(near.enter, A.CONST.city_entity_id(1)), "city one bucket away is inside radius 10")
-	assert(not has_pto(near.enter, A.CONST.city_entity_id(2)), "city two buckets away stays out of the radius")
-	local far = A.focus(10, 100, 0)
+	local r = A.CONST.AOI_RADIUS
+	local focus_x = r - 1
+	A.upsert_city(1, focus_x + r, 0)
+	A.upsert_city(2, focus_x + r * 4, 0)
+	local near = A.focus(10, focus_x, 0)
+	assert(has_pto(near.enter, A.CONST.city_entity_id(1)), "city one bucket away is inside the radius")
+	assert(not has_pto(near.enter, A.CONST.city_entity_id(2)), "city outside the 3x3 buckets stays out")
+	local far = A.focus(10, focus_x + r * 4, 0)
 	assert(has_pto(far.enter, A.CONST.city_entity_id(2)), "camera move enters the city in that bucket")
 	assert(has_num(far.leave, A.CONST.city_entity_id(1)), "camera move leaves the previous city")
 end
@@ -106,11 +128,12 @@ end
 function T.cross_has_no_update()
 	local A = load_aoi()
 	local viewer = 8
+	local r = A.CONST.AOI_RADIUS
 	A.focus(viewer, 0, 0)
 	A.start_march({
 		user_id = 1,
 		troop_idx = 1,
-		path = line(0, 30),
+		path = line(0, r * 4),
 		start_time = 0,
 		end_time = 6,
 	})
@@ -133,18 +156,19 @@ end
 function T.same_tick_one_push()
 	local A = load_aoi()
 	local viewer = 8
-	A.focus(viewer, 50, 0)
+	local far = A.CONST.AOI_RADIUS + 10
+	A.focus(viewer, far, 0)
 	A.start_march({
 		user_id = 1,
 		troop_idx = 1,
-		path = line(0, 100),
+		path = line(0, far * 2),
 		start_time = 0,
 		end_time = 10,
 	})
 	A.start_march({
 		user_id = 2,
 		troop_idx = 1,
-		path = line(0, 100),
+		path = line(0, far * 2),
 		start_time = 0,
 		end_time = 10,
 	})

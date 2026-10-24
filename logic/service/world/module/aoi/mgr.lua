@@ -680,6 +680,35 @@ function start_march(info)
 	return true
 end
 
+-- 没在走的部队停在主城（或到达点）上，其它玩家拉视野能看见。不进遭遇格，避免停在城里也挨打
+function park_troop(user_id, troop_idx, x, y)
+	local id = CONST.troop_entity_id(user_id, troop_idx)
+	local e = entities[id]
+	if e and e.moving then
+		return
+	end
+	if not e then
+		e = {
+			id = id,
+			entity_type = DATA_COMMON.ENTITY_TYPE.TROOP,
+			owner_id = user_id,
+			cfg_id = 0,
+			user_id = user_id,
+			troop_idx = troop_idx,
+		}
+		entities[id] = e
+	end
+	ENCOUNTER_MGR.unindex(e)
+	ENCOUNTER_MGR.clear_flee(e)
+	e.moving = false
+	e.path = nil
+	e.start_time = nil
+	e.end_time = nil
+	e.x = x
+	e.y = y
+	refresh_entity(e)
+end
+
 function remove_troop(user_id, troop_idx)
 	local id = CONST.troop_entity_id(user_id, troop_idx)
 	local e = entities[id]
@@ -860,27 +889,44 @@ local function tick()
 	skynet.timeout(math.floor(wait * 100 + 0.5), tick)
 end
 
-local function restore_marches()
+local function troop_has_hero(troop)
+	return type(troop._pos_tbl) == "table" and next(troop._pos_tbl) ~= nil
+end
+
+local function restore_marches(birth)
 	local troops = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_TROOP)
 	local now = TIME.os_bj_sec()
 	for _, doc in pairs(troops) do
 		for _, troop in pairs(doc._troops or {}) do
-			if troop._march_state == CONST.MARCH_STATE.MOVING and troop._user_id and troop._troop_idx then
-				if troop._end_time and now >= troop._end_time then
-					local agent = agent_of(troop._user_id)
-					if agent then
-						skynet.send(agent, "lua", "march_arrive", troop._user_id, troop._troop_idx, troop._end_time)
+			if troop._user_id and troop._troop_idx then
+				if troop._march_state == CONST.MARCH_STATE.MOVING then
+					if troop._end_time and now >= troop._end_time then
+						local agent = agent_of(troop._user_id)
+						if agent then
+							skynet.send(agent, "lua", "march_arrive", troop._user_id, troop._troop_idx, troop._end_time)
+						end
+					else
+						start_march({
+							user_id = troop._user_id,
+							troop_idx = troop._troop_idx,
+							target_type = troop._target_type,
+							target_id = troop._target_id,
+							path = troop._path or {},
+							start_time = troop._start_time,
+							end_time = troop._end_time,
+						})
 					end
-				else
-					start_march({
-						user_id = troop._user_id,
-						troop_idx = troop._troop_idx,
-						target_type = troop._target_type,
-						target_id = troop._target_id,
-						path = troop._path or {},
-						start_time = troop._start_time,
-						end_time = troop._end_time,
-					})
+				elseif troop_has_hero(troop) then
+					local x, y
+					local tail = troop._path and troop._path[#troop._path]
+					if troop._march_state == CONST.MARCH_STATE.ARRIVED and troop._target_type == DATA_COMMON.TARGET_TYPE.MOVE and tail then
+						x, y = tail._x, tail._y
+					elseif birth[troop._user_id] then
+						x, y = birth[troop._user_id].x, birth[troop._user_id].y
+					end
+					if x then
+						park_troop(troop._user_id, troop._troop_idx, x, y)
+					end
 				end
 			end
 		end
@@ -893,13 +939,15 @@ function init()
 	end
 	-- 资源地在 mapRes 快照里，按格子类型和等级读，不再随机铺到空地上
 	local users = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO)
+	local birth = {}
 	for _, dat in pairs(users) do
 		if dat._has_birth and dat._user_id then
+			birth[dat._user_id] = {x = dat._birth_x, y = dat._birth_y}
 			upsert_city(dat._user_id, dat._birth_x, dat._birth_y)
 		end
 	end
 	ENCOUNTER_MGR.load_alliances()
 	load_agent_list()
-	restore_marches()
+	restore_marches(birth)
 	skynet.timeout(1, tick)
 end

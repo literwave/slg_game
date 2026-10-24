@@ -2,7 +2,7 @@
 skynetdir = "./"
 rootdir = "../"
 
-thread = 4
+thread = 8
 harbor = 0
 start = "bench_main"
 bootstrap = "snlua bootstrap"

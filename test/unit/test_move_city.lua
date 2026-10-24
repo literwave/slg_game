@@ -56,20 +56,32 @@ function T.same_cell_stays()
 	assert(not map:hold_birth_idx(5))
 end
 
-function T.birth_uses_spawn_slot()
+function T.birth_uses_any_free_cell()
 	local map = new_map(load_map())
 	assert(map:mark_spawn(2))
-	assert(map:alloc_birth_idx() == 2)
+	local got = {}
+	for _ = 1, 8 do
+		local idx = map:alloc_birth_idx()
+		assert(idx and idx ~= 1 and not got[idx])
+		got[idx] = true
+	end
 	assert(map:alloc_birth_idx() == nil)
-	assert(map:relocate_birth(2, 3))
-	assert(map:alloc_birth_idx() == 2)
+	assert(map:relocate_birth(2, 2))
+	assert(not map:alloc_birth_idx())
+	map:release_birth_idx(4)
+	assert(map:alloc_birth_idx() == 4)
 end
 
 function T.wild_skips_spawn_slot()
 	local map = new_map(load_map())
 	assert(map:mark_spawn(2))
-	local wild = map:alloc_wild_idx()
-	assert(wild and wild ~= 2)
+	local got = {}
+	for _ = 1, 7 do
+		local wild = map:alloc_wild_idx()
+		assert(wild and wild ~= 2 and not got[wild])
+		got[wild] = true
+	end
+	assert(map:alloc_wild_idx() == nil)
 	assert(map:alloc_birth_idx() == 2)
 end
 

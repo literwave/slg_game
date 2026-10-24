@@ -12,6 +12,7 @@ local CMD_DESC = {
 	{ "show_time", "显示时间 [show_time]" },
 	{ "set_open_time", "设置开服时间 [set_open_time 年,月,日] 或 [set_open_time 年,月,日,时,分,秒]，[set_open_time 0] 恢复配置，重启后失效" },
 	{ "add_item", "增加道具 [add_item itemId,cnt]" },
+	{ "add_soldier", "增加预备兵力 [add_soldier cnt]，不填数量则加到上限，不计入编队" },
 	{ "del_item", "删除道具 [del_item itemId,cnt]" },
 	{ "mail", "给自己发模板邮件 [mail mailId] 或 [mail mailId,itemId,cnt]" },
 	{ "srv_mail", "发全服模板邮件 [srv_mail mailId] 或 [srv_mail mailId,itemId,cnt]" },
@@ -173,6 +174,18 @@ function CMD.full_hero(vfd)
 	for _, hero_type in ipairs(DATA_COMMON.get_all_hero_types()) do
 		HERO_MGR.add_hero(user_id, hero_type, {CONST.FLOW_REASON.GM})
 	end
+end
+
+function CMD.add_soldier(vfd, cnt)
+	local user = USER_MGR.get_user_by_fd(vfd)
+	assert(user)
+	if not cnt then
+		cnt = DATA_COMMON.get_soldier_max()
+	end
+	assert(cnt > 0)
+	local added = user:add_soldier(cnt)
+	user:sync_soldier()
+	tell(vfd, string.format("兵力 +%d，当前 %d", added, user:get_soldier_cnt()))
 end
 
 function CMD.add_exp(vfd, exp)

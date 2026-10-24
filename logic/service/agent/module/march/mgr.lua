@@ -116,10 +116,21 @@ function on_arrive(user_id, troop_idx, end_time)
 		end
 		return
 	end
+	if troop:get_target_type() == DATA_COMMON.TARGET_TYPE.MOVE then
+		troop:set_arrived()
+		if fd then
+			for_caller.s2c_sync_march(fd, {marchInfo = troop:get_march_pto()})
+		end
+		return
+	end
 	local pto = troop:get_march_pto()
 	pto.state = CONST.MARCH_STATE.ARRIVED
 	troop:clear_march()
-	world_call("remove_troop", user_id, troop_idx)
+	if user:has_birth_pos() then
+		world_call("park_troop", user_id, troop_idx, user:get_birth_x(), user:get_birth_y())
+	else
+		world_call("remove_troop", user_id, troop_idx)
+	end
 	if fd then
 		for_caller.s2c_sync_march(fd, {marchInfo = pto})
 	end
@@ -173,6 +184,10 @@ function on_user_login(user_id)
 			else
 				world_call("start_march", troop:get_march_info())
 			end
+		elseif state == 0 and troop:has_hero() and user:has_birth_pos() then
+			world_call("park_troop", user_id, troop:get_troop_idx(), user:get_birth_x(), user:get_birth_y())
+		elseif state == CONST.MARCH_STATE.ARRIVED and troop:get_target_type() == DATA_COMMON.TARGET_TYPE.MOVE then
+			world_call("start_march", troop:get_march_info())
 		elseif state == CONST.MARCH_STATE.ARRIVED and (troop:get_target_type() == DATA_COMMON.TARGET_TYPE.ATTACK_MONSTER or troop:is_gathering()) then
 			-- 还占着资源地的继续采；世界服务重启过占领没了就结算回城
 			if not (troop:is_gathering() and still_occupying(user_id, troop)) and begin_return(user, troop) then
@@ -229,6 +244,14 @@ local function on_march(fd, packet)
 		target_id = packet.targetId
 	elseif packet.targetType == DATA_COMMON.TARGET_TYPE.RETURN_CITY then
 		ex, ey = user:get_birth_x(), user:get_birth_y()
+		target_id = 0
+	elseif packet.targetType == DATA_COMMON.TARGET_TYPE.MOVE then
+		local pos = packet.targetPos
+		if not pos or not pos.x or not pos.y then
+			USER_MGR.tell_me(user_id, "目标无法到达")
+			return
+		end
+		ex, ey = pos.x, pos.y
 		target_id = 0
 	else
 		return

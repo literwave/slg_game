@@ -279,13 +279,12 @@ function cls_user:set_soldier_cnt(cnt)
 	self._data._soldier_cnt = cnt
 end
 
--- 加到城中兵力，不超过 Global Id=8 减去已出征的兵
+-- 预备兵力，上限是 Global Id=8，编队里的兵另算
 function cls_user:add_soldier(cnt)
 	if cnt <= 0 then
 		return 0
 	end
-	local deployed = TROOP_MGR.deployed_soldier(self:get_user_id())
-	local room = DATA_COMMON.get_soldier_max() - deployed - self:get_soldier_cnt()
+	local room = DATA_COMMON.get_soldier_max() - self:get_soldier_cnt()
 	if room < cnt then
 		cnt = room
 	end

@@ -125,6 +125,10 @@ local function wait_gm_ok(ws, cmd)
 end
 
 local function sleep_interval()
+	-- 0 表示不歇，用来把服务器打到自己的上限
+	if not conf.interval_ms or conf.interval_ms <= 0 then
+		return
+	end
 	local cs = conf.interval_ms / 10
 	skynet.sleep(math.max(1, math.floor(cs * (0.8 + math.random() * 0.4))))
 end
@@ -178,8 +182,9 @@ local function run_bot(idx)
 				posMap = {{key = 1, value = {heroIdx = hero_type, soldier = {count = 100}}}},
 			},
 		}}, true)
+		-- 部队已经在城外时编队会被拒，人还在，继续打
 		if ok == "reject" then
-			ok, err = nil, "edit troop: " .. tostring(err)
+			ok = "ok"
 		end
 	end
 	if ok then

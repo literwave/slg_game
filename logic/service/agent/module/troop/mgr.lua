@@ -1,3 +1,5 @@
+local skynet = require "skynet"
+
 all_user_troop_tbl = {}
 
 function ref_troop(troop)
@@ -30,14 +32,6 @@ end
 function get_troop(user_id, troop_idx)
 	local troop_tbl = try_init_user_troops(user_id)
 	return troop_tbl[troop_idx]
-end
-
-function deployed_soldier(user_id)
-	local sum = 0
-	for _, troop in pairs(try_init_user_troops(user_id)) do
-		sum = sum + troop:get_soldier_sum()
-	end
-	return sum
 end
 
 function on_user_logout(user_id)
@@ -197,6 +191,25 @@ local function on_edit_troop(fd, packet)
 	end
 	user:set_soldier_cnt(pool - need)
 	user:sync_soldier()
+	if user:has_birth_pos() then
+		local seen = {}
+		local function sync_map(one)
+			if not one or one:get_march_state() ~= 0 or seen[one:get_troop_idx()] then
+				return
+			end
+			seen[one:get_troop_idx()] = true
+			local world = skynet.localname(".world")
+			if one:has_hero() then
+				skynet.call(world, "lua", "park_troop", user_id, one:get_troop_idx(), user:get_birth_x(), user:get_birth_y())
+			else
+				skynet.call(world, "lua", "remove_troop", user_id, one:get_troop_idx())
+			end
+		end
+		sync_map(troop)
+		for _, strip in ipairs(strips) do
+			sync_map(strip.troop)
+		end
+	end
 	local pto = troop and troop:get_pto_info() or {troopIdx = troop_idx, posMap = {}}
 	for_caller.s2c_edit_troop(fd, {troopInfo = pto})
 	if #strips > 0 then

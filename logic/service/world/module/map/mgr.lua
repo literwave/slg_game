@@ -57,31 +57,10 @@ local function index_land_cfg()
 	end
 end
 
--- 出生区中心常常落在资源上，在 safeRadius 里挑离中心最近的空地
-local function nearest_birth(x, y, radius, w, h)
-	local best, best_d
-	for dy = -radius, radius do
-		for dx = -radius, radius do
-			local d = dx * dx + dy * dy
-			if d <= radius * radius then
-				local nx, ny = x + dx, y + dy
-				if nx >= 0 and ny >= 0 and nx < w and ny < h then
-					local idx = cell_id_of(nx, ny, w) + 1
-					if map_obj:is_birth_cell(idx) and (not best_d or d < best_d) then
-						best, best_d = idx, d
-					end
-				end
-			end
-		end
-	end
-	return best
-end
-
 function init()
 	local manifest = dofile(MAP_DIR .. "manifest.lua")
 	local map_res = dofile(MAP_DIR .. "mapRes_0.lua")
 	local terrain = dofile(MAP_DIR .. "terrain.lua")
-	local campaign = dofile(MAP_DIR .. "campaign-map.lua")
 	assert(map_res and map_res.w and map_res.h and map_res.list and map_res.emptyCells, "load mapRes_0 failed")
 	assert(manifest.width == map_res.w and manifest.height == map_res.h, "map size mismatch")
 	local w, h = map_res.w, map_res.h
@@ -100,22 +79,11 @@ function init()
 		end
 	end
 
-	local reserved = {}
-	for _, cell_id in ipairs(terrain.reservedCityCells) do
-		reserved[cell_id] = true
-	end
-	local empty_cnt = 0
-	for _, cell_id in ipairs(map_res.emptyCells) do
-		if not reserved[cell_id] and map_obj:allow_birth(cell_id + 1) then
-			empty_cnt = empty_cnt + 1
-		end
-	end
-
-	local spawn_cnt = 0
-	for _, zone in ipairs(campaign.spawnZones) do
-		local idx = nearest_birth(zone.x, zone.y, zone.safeRadius or 0, w, h)
-		if idx and map_obj:mark_spawn(idx) then
-			spawn_cnt = spawn_cnt + 1
+	-- 不是山河阻挡就能落城，不再只从预置出生点里挑
+	local birth_cnt = 0
+	for idx = 1, w * h do
+		if map_obj:allow_birth(idx) then
+			birth_cnt = birth_cnt + 1
 		end
 	end
 
@@ -137,8 +105,8 @@ function init()
 	nav_obj = navigation.new(w, h, obstacles)
 	load_used_birth()
 	skynet.error(string.format(
-		"world map init %d %d rev %s block %d empty %d spawn %d land %d",
-		w, h, map_revision, block_cnt, empty_cnt, spawn_cnt, land_cnt))
+		"world map init %d %d rev %s block %d birth %d land %d",
+		w, h, map_revision, block_cnt, birth_cnt, land_cnt))
 end
 
 function get_map()

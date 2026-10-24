@@ -165,9 +165,13 @@ function CMD.accept(fd, addr)
 	websocket.accept(fd, handle, PROTOCOL, addr)
 end
 
--- agent 在 login 过程中就会推包，此时 CONNECTION 还没登记，不能按它过滤
+-- agent 在 login 过程中就会推包，此时 CONNECTION 还没登记，不能按它过滤。
+-- 连接已关时 websocket.write 会断言，这里丢掉这一包，避免打崩 gate_worker
 function CMD.send_client_pack(fd, packet)
-	websocket.write(fd, packet, "binary")
+	if is_closing then
+		return
+	end
+	pcall(websocket.write, fd, packet, "binary")
 end
 
 function CMD.kick(fd)
