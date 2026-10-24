@@ -680,7 +680,7 @@ function start_march(info)
 	return true
 end
 
--- 没在走的部队停在主城（或到达点）上，其它玩家拉视野能看见。不进遭遇格，避免停在城里也挨打
+-- 停在城外的部队留在到达点上。回到主城的不进这里，主城本身就是那个实体
 function park_troop(user_id, troop_idx, x, y)
 	local id = CONST.troop_entity_id(user_id, troop_idx)
 	local e = entities[id]
@@ -893,7 +893,7 @@ local function troop_has_hero(troop)
 	return type(troop._pos_tbl) == "table" and next(troop._pos_tbl) ~= nil
 end
 
-local function restore_marches(birth)
+local function restore_marches()
 	local troops = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_TROOP)
 	local now = TIME.os_bj_sec()
 	for _, doc in pairs(troops) do
@@ -916,16 +916,10 @@ local function restore_marches(birth)
 							end_time = troop._end_time,
 						})
 					end
-				elseif troop_has_hero(troop) then
-					local x, y
+				elseif troop._march_state == CONST.MARCH_STATE.ARRIVED and troop._target_type == DATA_COMMON.TARGET_TYPE.MOVE and troop_has_hero(troop) then
 					local tail = troop._path and troop._path[#troop._path]
-					if troop._march_state == CONST.MARCH_STATE.ARRIVED and troop._target_type == DATA_COMMON.TARGET_TYPE.MOVE and tail then
-						x, y = tail._x, tail._y
-					elseif birth[troop._user_id] then
-						x, y = birth[troop._user_id].x, birth[troop._user_id].y
-					end
-					if x then
-						park_troop(troop._user_id, troop._troop_idx, x, y)
+					if tail then
+						park_troop(troop._user_id, troop._troop_idx, tail._x, tail._y)
 					end
 				end
 			end
@@ -948,6 +942,6 @@ function init()
 	end
 	ENCOUNTER_MGR.load_alliances()
 	load_agent_list()
-	restore_marches(birth)
+	restore_marches()
 	skynet.timeout(1, tick)
 end

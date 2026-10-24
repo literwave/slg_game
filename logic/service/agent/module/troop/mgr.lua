@@ -199,11 +199,7 @@ local function on_edit_troop(fd, packet)
 			end
 			seen[one:get_troop_idx()] = true
 			local world = skynet.localname(".world")
-			if one:has_hero() then
-				skynet.call(world, "lua", "park_troop", user_id, one:get_troop_idx(), user:get_birth_x(), user:get_birth_y())
-			else
-				skynet.call(world, "lua", "remove_troop", user_id, one:get_troop_idx())
-			end
+			skynet.call(world, "lua", "remove_troop", user_id, one:get_troop_idx())
 		end
 		sync_map(troop)
 		for _, strip in ipairs(strips) do
@@ -221,4 +217,15 @@ function __init__()
 	for_maker.c2s_req_troop = on_req_troop
 	for_maker.c2s_edit_troop = on_edit_troop
 	EVENT.listen(CONST.EVENT.ON_USER_LOGOUT)
+	local world = skynet.localname(".world")
+	if not world then
+		return
+	end
+	for user_id, troops in pairs(all_user_troop_tbl) do
+		for _, troop in pairs(troops) do
+			if troop:get_march_state() == 0 then
+				skynet.call(world, "lua", "remove_troop", user_id, troop:get_troop_idx())
+			end
+		end
+	end
 end
