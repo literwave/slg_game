@@ -17,7 +17,7 @@ local CMD_DESC = {
 	{ "mail", "给自己发模板邮件 [mail mailId] 或 [mail mailId,itemId,cnt]" },
 	{ "srv_mail", "发全服模板邮件 [srv_mail mailId] 或 [srv_mail mailId,itemId,cnt]" },
 	{ "notice", "发全服公告邮件 [notice 标题,内容]" },
-	{ "add_hero", "添加武将 [add_hero heroType]" },
+	{ "add_hero", "添加武将 [add_hero heroId]" },
 	{ "full_hero", "获得全部武将 [full_hero]" },
 	{ "add_exp", "增加主角经验 [add_exp exp]" },
 	{ "open_system", "解锁系统 [open_system systemId]，0为全部" },

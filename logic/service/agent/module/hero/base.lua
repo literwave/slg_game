@@ -48,7 +48,7 @@ function cls_hero:get_hero_pto_base_info()
 		})
 	end
 	return {
-		heroType = self._data._hero_type,
+		heroId = self._data._hero_type,
 		exp = self._data._exp,
 		lv = self._data._level,
 		star = self:get_star(),

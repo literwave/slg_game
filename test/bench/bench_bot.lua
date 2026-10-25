@@ -169,7 +169,7 @@ local function run_bot(idx)
 	if ok then
 		local kind, body = request(ws, {"c2s_req_all_hero_base_info", "s2c_req_all_hero_base_info", nil, true})
 		local hero = kind == "ok" and body.heroInfoList and body.heroInfoList[1]
-		hero_type = hero and hero.heroType
+		hero_type = hero and hero.heroId
 		if not hero_type then
 			ok, err = nil, "no hero " .. tostring(kind)
 		end
