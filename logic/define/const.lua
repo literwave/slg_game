@@ -27,6 +27,9 @@ SEX_WOMAN = 2
 RES_TYPE_FOOD = 1
 RES_TYPE_WARER = 2
 RES_TYPE_WOOD = 3
+-- 资源栏石料。key 是 5，和道具 Id、客户端资源栏一致，中间空过 4
+RES_TYPE_STONE = 5
+RES_BAR_LIST = {RES_TYPE_FOOD, RES_TYPE_WARER, RES_TYPE_WOOD, RES_TYPE_STONE}
 
 COST_TYPE = {
 	DIAMOND = 1,
@@ -312,5 +315,5 @@ EVENT = {
 	ON_RECHARGE = "on_recharge",
 	-- 计算类：传一个 ctx 表，监听方同步改里面的倍率，发起方 dispatch 完再用
 	ON_CALC_ITEM_REWARD = "on_calc_item_reward",	-- (user_id, ctx{item_id, rate=1})，取最大倍率
-	ON_CALC_LOTTERY_COST = "on_calc_lottery_cost",	-- (user_id, ctx{lottery_id, rate=100})，百分比，取最低
+	ON_CALC_LOTTERY_COST = "on_calc_lottery_cost",	-- (user_id, ctx{lottery_id, rate=100})，百分比取最低；活动 lottery_id=0 表示全部抽数
 }

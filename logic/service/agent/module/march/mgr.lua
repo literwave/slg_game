@@ -22,8 +22,9 @@ local function leave_gather(user, troop)
 	local gathered = math.floor(conf.GatherSpeed * sec / CONST.ONE_HOUR_SEC)
 	gathered = world_call("leave_res_land", entity_id, user_id, troop:get_troop_idx(), gathered) or gathered
 	if gathered > 0 then
+		local reward_type = conf.OutputItem == CONST.RES_TYPE_STONE and CONST.REWARD_TYPE_RES or CONST.REWARD_TYPE_ITEM
 		REWARD_MGR.reward_user_and_show(user_id, {
-			GLOBAL_FUNC.gen_reward_info(CONST.REWARD_TYPE_ITEM, conf.OutputItem, gathered),
+			GLOBAL_FUNC.gen_reward_info(reward_type, conf.OutputItem, gathered),
 		}, {CONST.FLOW_REASON.GATHER, land_id})
 	end
 end

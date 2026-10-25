@@ -80,7 +80,7 @@ function reward_user(user_id, reward_list, reason_list)
 			reward_tbl[reward_type] = {}
 		end
 		local info = table.deepcopy(reward_info)
-		if reward_type == CONST.REWARD_TYPE_ITEM and info.item_count > 0 then
+		if (reward_type == CONST.REWARD_TYPE_ITEM or reward_type == CONST.REWARD_TYPE_RES) and info.item_count > 0 then
 			local ctx = {item_id = info.item_id, rate = 1}
 			EVENT.dispatch(CONST.EVENT.ON_CALC_ITEM_REWARD, user_id, ctx)
 			info.item_count = math.floor(info.item_count * ctx.rate)

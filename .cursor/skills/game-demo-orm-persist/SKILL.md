@@ -2,13 +2,59 @@
 name: game-demo-orm-persist
 description: >-
   Guides Game Demo Framework ORM schema, Mongo persistence, and gameplay Lua style.
+  Server repo is slg_game; the client project is slg_game_client (Cocos Creator).
   Use when adding/changing .td schemas, clsXxx _data, saveDoc/saveDocField,
   mongo_slave persist, migrating modules off opMongoValue/@ paths, or writing
-  game logic that checks or sends protocol fields. Protocol files live in the
-  game_common submodule and must be pulled, not edited here.
+  game logic that checks or sends protocol fields for user, hero, item, build,
+  troop, march, world, battle, report, task, activity, rank, mail, alliance,
+  chat, or lottery. Protocol files live in the game_common submodule and must
+  be pulled, not edited here.
 ---
 
 # Game Demo ORM 存盘
+
+## 项目与模块
+
+服务端是本仓库 `slg_game`。客户端项目是 [slg_game_client](https://github.com/literwave/slg_game_client)（Cocos Creator 3.8.8）。协议和导表在子模块 `game_common`，客户端读同一份协议，不要在这边改。
+
+玩家协议进 `logic/service/agent`。`global.lua` 里挂上的模块才生效。
+
+| 模块 | 全局 | 功能 | 协议 |
+|------|------|------|------|
+| `module/user` | `USER_MGR` | 登录后的玩家档案、心跳、创角、迁城、头像、预备兵 | `User`：`c2s_user_base_info`、`c2s_user_create`、`c2s_move_city`、`c2s_change_head_icon`、`c2s_heart_beat`、`c2s_client_load_ok` |
+| `module/resource` | `RESOURCE` | 资源栏查询（粮、水、木、石） | `User.c2s_req_user_res` |
+| `module/hero` | `HERO_MGR` | 武将 | `c2s_req_all_hero_base_info` |
+| `module/item` | `ITEM_MGR` | 道具、武将装备。建造和发奖来扣加，没有独立协议 | — |
+| `module/build` | `BUILD_MGR` | 内城建筑：建造、升级 | `Build` |
+| `module/troop` | `TROOP_MGR` | 编队。`count` 是可用兵力，伤兵跟着武将 | `World`：`c2s_req_troop`、`c2s_edit_troop` |
+| `module/march` | `MARCH_MGR` | 出征、回城、采集结算；视野焦点转到 `.world` | `World`：`c2s_march`、`c2s_cancel_march`、`c2s_req_march_list`、`c2s_aoi_focus` |
+| `module/battle` | `BATTLE_MGR` | 打野、占资源地、同格战的结算和发奖。伤害计算丢给 `.battle` | `Battle.c2s_battle_skip` |
+| `module/report` | `REPORT_MGR` | 战报列表、详情、回放 | `Report` |
+| `module/task` | `TASK_MGR` | 任务进度和领奖 | `Task` |
+| `module/activity` | `ACTIVITY_MGR` | 活动列表；冲榜分数报到 `.activity` | `Activity`、`Rank.c2s_req_rank_list` |
+| `module/lottery` | `LOTTERY` | 抽卡 | `c2s_req_user_lottery_info`、`c2s_user_lottery` |
+| `module/reward` | `REWARD_MGR` | 发奖：道具、资源、武将、兵。超额道具走补发邮件 | — |
+| `module/system_open` | `SYSTEM_OPEN` | 功能开启 | `c2s_req_system_open` |
+| `module/mail` | `MAIL_MGR` | 协议转到 `.mail`；领奖在 agent 发 | `Mail` |
+| `module/social` | `SOCIAL_MGR` | 协议转到 `.union`，带上玩家名片 | `Alliance`、`Chat` |
+| `module/gm` | `GM` | GM | `User.c2s_gm_command` |
+
+`module/queue`（建造队列）还没在 `global.lua` 挂上，协议未接入。
+
+玩家数据以外的服务：
+
+| 服务 | 功能 |
+|------|------|
+| `logind` | 账号登录，签发 token。客户端先连这里 |
+| `gated` / `gate_worker` | 网关接入、校验 token、把包转到 agent |
+| `world` | 大地图、出生点、寻路（`map`）、视野（`aoi`）、主城实体（`entity`）、同格遭遇（`encounter`）、资源地占领 |
+| `battle` | 只算战斗，不存盘。同一目标固定进同一个服务 |
+| `mail` | 邮件存取。领奖回 agent |
+| `union` | 联盟存盘（`alliance`）；聊天只在内存（`chat`），重启清空 |
+| `activity` | 战力榜、主城等级榜 |
+| `gameserver` | 全局协调 |
+| `game_sid` | 分配玩家 id |
+| `main_mongodb` | Mongo 访问 |
 
 ## 原则
 

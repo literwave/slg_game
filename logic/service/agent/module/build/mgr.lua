@@ -93,6 +93,18 @@ function sync_all_build_to_client(user_id)
 	end
 end
 
+local function on_req_build(fd)
+	local user_id = USER_MGR.get_user_id_by_fd(fd)
+	if not user_id then
+		return
+	end
+	local build_list = {}
+	for _, build in pairs(try_init_user_builds(user_id) or {}) do
+		build_list[#build_list + 1] = build:get_build_pto_info()
+	end
+	for_caller.s2c_req_build(fd, {buildList = build_list})
+end
+
 local function tell(user_id, msg)
 	USER_MGR.tell_me(user_id, msg)
 end
@@ -107,13 +119,13 @@ local function limit_met(user_id, limits)
 	return true
 end
 
--- 粮木铁石是道具 1、2、3、5。数量为 0 的不放进消耗列表
+-- 粮木铁是道具 1、2、3。石料是资源栏 key 5。数量为 0 的不放进消耗列表
 local function cost_list_of(conf)
 	local list = {}
-	local function add(count, item_id)
+	local function add(count, item_id, cost_type)
 		if count and count > 0 then
 			list[#list + 1] = {
-				cost_type = CONST.COST_TYPE.ITEM,
+				cost_type = cost_type or CONST.COST_TYPE.ITEM,
 				itemId = item_id,
 				count = count,
 			}
@@ -122,7 +134,7 @@ local function cost_list_of(conf)
 	add(conf.CostGrain, CONST.BUILD_COST_ITEM.GRAIN)
 	add(conf.CostWood, CONST.BUILD_COST_ITEM.WOOD)
 	add(conf.CostIron, CONST.BUILD_COST_ITEM.IRON)
-	add(conf.CostStone, CONST.BUILD_COST_ITEM.STONE)
+	add(conf.CostStone, CONST.RES_TYPE_STONE, CONST.COST_TYPE.RES)
 	return list
 end
 
@@ -203,6 +215,7 @@ local function on_up_build(fd, packet)
 end
 
 function __init__()
+	for_maker.c2s_req_build = on_req_build
 	for_maker.c2s_create_build = on_create_build
 	for_maker.c2s_up_build = on_up_build
 	EVENT.listen(CONST.EVENT.ON_USER_LOGIN)

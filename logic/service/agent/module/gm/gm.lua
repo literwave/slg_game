@@ -252,7 +252,7 @@ function CMD.super(vfd, level)
 	CMD.full_build(vfd)
 
 	local res_list = {}
-	for res_type = CONST.RES_TYPE_FOOD, CONST.RES_TYPE_WOOD do
+	for _, res_type in ipairs(CONST.RES_BAR_LIST) do
 		user:add_res(res_type, CONST.GM_SUPER_RES, {CONST.FLOW_REASON.GM})
 		res_list[#res_list + 1] = res_type
 	end

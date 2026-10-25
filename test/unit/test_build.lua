@@ -89,6 +89,9 @@ local function setup()
 				function build:get_level() return oci._level end
 				function build:set_level(level) oci._level = level end
 				function build:get_build_type() return oci._bid end
+				function build:get_build_pto_info()
+					return {bid = oci._bid, level = oci._level}
+				end
 				function build:sync_to_client()
 					syncs[#syncs + 1] = {bid = oci._bid, level = oci._level}
 				end
@@ -104,6 +107,21 @@ local function setup()
 end
 
 local T = {}
+
+function T.req_returns_owned_buildings()
+	local env = setup()
+	local pack
+	env.for_caller.s2c_req_build = function(_, msg)
+		pack = msg
+	end
+	env.for_maker.c2s_req_build(9)
+	local got = {}
+	for _, info in ipairs(pack.buildList) do
+		got[info.bid] = info.level
+	end
+	assert(got[1] == 1 and got[10] == 1)
+	assert(got[2] == nil)
+end
 
 function T.login_gives_initial_buildings()
 	local env = setup()
