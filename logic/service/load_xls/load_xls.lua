@@ -53,6 +53,7 @@ DATA_FILE_LIST = {
 	"../game_common/server/res/Skill.lua",
 	"../game_common/server/res/EntityType.lua",
 	"../game_common/server/res/TargetType.lua",
+	"../game_common/server/res/TroopState.lua",
 	"../game_common/server/res/RankType.lua",
 	"../game_common/server/res/ReportType.lua",
 	"../game_common/server/res/ChatChannel.lua",

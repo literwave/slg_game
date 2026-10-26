@@ -7,6 +7,13 @@ sdk_param_map <string, string>
 
 system_open_map <number, number>
 
+mark_data {
+    _x number
+    _y number
+}
+
+mark_bag <number, mark_data>
+
 user_data {
     _user_id number
     _birth_time number
@@ -32,4 +39,5 @@ user_data {
     _level number
     _exp number
     _system_open_tbl system_open_map
+    _marks mark_bag
 }

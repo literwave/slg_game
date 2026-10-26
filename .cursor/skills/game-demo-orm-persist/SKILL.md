@@ -26,7 +26,7 @@ description: >-
 | `module/hero` | `HERO_MGR` | 武将 | `c2s_req_all_hero_base_info` |
 | `module/item` | `ITEM_MGR` | 道具、武将装备。全量快照和单条同步；建造和发奖来扣加 | `Item`：`c2s_req_all_item_data`、`s2c_sync_item_data` |
 | `module/build` | `BUILD_MGR` | 内城建筑：建造、升级 | `Build` |
-| `module/troop` | `TROOP_MGR` | 编队。`count` 是可用兵力，伤兵跟着武将 | `World`：`c2s_req_troop`、`c2s_edit_troop` |
+| `module/troop` | `TROOP_MGR` | 编队。`count` 是可用兵力，伤兵跟着武将。`_troop_state` 用 `DATA_COMMON.TROOP_STATE` | `World`：`c2s_req_troop`、`c2s_edit_troop` |
 | `module/march` | `MARCH_MGR` | 出征、回城、采集结算；视野焦点转到 `.world` | `World`：`c2s_march`、`c2s_cancel_march`、`c2s_req_march_list`、`c2s_aoi_focus` |
 | `module/battle` | `BATTLE_MGR` | 打野、占资源地、同格战的结算和发奖。伤害计算丢给 `.battle` | `Battle.c2s_battle_skip` |
 | `module/report` | `REPORT_MGR` | 战报列表、详情、回放 | `Report` |
@@ -36,6 +36,7 @@ description: >-
 | `module/reward` | `REWARD_MGR` | 发奖：道具、资源、武将、兵。超额道具走补发邮件 | — |
 | `module/system_open` | `SYSTEM_OPEN` | 功能开启 | `c2s_req_system_open` |
 | `module/mail` | `MAIL_MGR` | 协议转到 `.mail`；领奖在 agent 发 | `Mail` |
+| `module/mark` | `MARK_MGR` | 大地图标记，存在 `user_data._marks`。格子坐标唯一，上限 Global.Id=18 | `World`：`c2s_req_mark_list`、`c2s_add_mark`、`c2s_del_mark` |
 | `module/social` | `SOCIAL_MGR` | 协议转到 `.union`，带上玩家名片 | `Alliance`、`Chat` |
 | `module/gm` | `GM` | GM | `User.c2s_gm_command` |
 

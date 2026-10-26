@@ -519,3 +519,35 @@ function cls_user:set_system_open(system_id)
 	end
 	self._data._system_open_tbl[system_id] = TIME.os_bj_sec()
 end
+
+function cls_user:get_mark(key)
+	local mark = self._data._marks[key]
+	if not mark then
+		return
+	end
+	return mark._x, mark._y
+end
+
+function cls_user:get_mark_cnt()
+	local n = 0
+	for _ in pairs(self._data._marks) do
+		n = n + 1
+	end
+	return n
+end
+
+function cls_user:get_mark_list()
+	local list = {}
+	for _, mark in pairs(self._data._marks) do
+		list[#list + 1] = {x = mark._x, y = mark._y}
+	end
+	return list
+end
+
+function cls_user:set_mark(key, x, y)
+	self._data._marks[key] = {_x = x, _y = y}
+end
+
+function cls_user:del_mark(key)
+	self._data._marks[key] = nil
+end

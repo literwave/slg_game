@@ -21,11 +21,23 @@ skynet.register_protocol {
 	unpack = skynet.unpack
 }
 
+-- 坏包、未知协议号、pb 解码失败都只丢掉这一包，不能抛到 skynet.dispatch
 local function decode_pack(packet)
-	local id, pos = string.unpack(">I2", packet, 3)
+	local ok, id, pos = pcall(string.unpack, ">I2", packet, 3)
+	if not ok then
+		return nil, nil, id
+	end
 	local pto_name = ID_TO_PTONAME[id]
 	local pack_name = ID_TO_PACK_NAME[id]
-	return protobuf.decode(pack_name, packet:sub(pos)), pto_name
+	if not pack_name then
+		return nil, nil, string.format("unknown proto %s", id)
+	end
+	local msg, err
+	ok, msg, err = pcall(protobuf.decode, pack_name, packet:sub(pos))
+	if not ok or not msg then
+		return nil, pto_name, ok and err or msg
+	end
+	return msg, pto_name
 end
 
 local function get_user_queue(user_id)
@@ -211,13 +223,14 @@ skynet.start(function()
 		if is_closing then
 			return
 		end
-		local msg, pto_name = decode_pack(packet)
+		local msg, pto_name, err = decode_pack(packet)
+		if not msg then
+			skynet.error("decode client pack failed", fd, user_id, pto_name, err)
+			return
+		end
 		assert(fd)
 		if not for_maker[pto_name] then
 			skynet.error("ptoName not registerptoName", pto_name)
-			return
-		end
-		if not msg then
 			return
 		end
 		-- 分发数据；执行时再确认 fd 仍是当前连接，顶号后旧连接残留的包丢掉

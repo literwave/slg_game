@@ -74,24 +74,32 @@ function cls_troop:find_hero(hero_idx)
 	end
 end
 
+function cls_troop:get_troop_state()
+	return self._data._troop_state
+end
+
+function cls_troop:set_troop_state(state)
+	self._data._troop_state = state
+end
+
 function cls_troop:get_march_state()
-	return self._data._march_state
+	return self._data._march._state
 end
 
 function cls_troop:get_target_type()
-	return self._data._target_type
+	return self._data._march._target_type
 end
 
 function cls_troop:get_target_id()
-	return self._data._target_id
+	return self._data._march._target_id
 end
 
 function cls_troop:get_start_time()
-	return self._data._start_time
+	return self._data._march._start_time
 end
 
 function cls_troop:get_end_time()
-	return self._data._end_time
+	return self._data._march._end_time
 end
 
 function cls_troop:is_marching()
@@ -99,36 +107,45 @@ function cls_troop:is_marching()
 end
 
 function cls_troop:calc_pos(now)
-	return MARCH_PATH.pos_at(self._data._path, self._data._start_time, self._data._end_time, now)
+	local march = self._data._march
+	return MARCH_PATH.pos_at(march._path, march._start_time, march._end_time, now)
 end
 
 function cls_troop:set_march(info)
-	self._data._march_state = info.state
-	self._data._target_type = info.target_type
-	self._data._target_id = info.target_id
-	self._data._path = info.path
-	self._data._start_time = info.start_time
-	self._data._end_time = info.end_time
+	local march = self._data._march
+	march._state = info.state
+	march._target_type = info.target_type
+	march._target_id = info.target_id
+	march._path = info.path
+	march._start_time = info.start_time
+	march._end_time = info.end_time
+	if info.state == CONST.MARCH_STATE.MOVING then
+		self:set_troop_state(DATA_COMMON.TROOP_STATE.MARCH)
+	elseif info.state == 0 then
+		self:set_troop_state(DATA_COMMON.TROOP_STATE.IN_CITY)
+	end
 end
 
 function cls_troop:set_arrived()
-	self._data._march_state = CONST.MARCH_STATE.ARRIVED
+	self._data._march._state = CONST.MARCH_STATE.ARRIVED
+	self:set_troop_state(DATA_COMMON.TROOP_STATE.STAY)
 end
 
 -- 占领资源地后停在原地采集，start/end 改记采集开始和采满的时间
 function cls_troop:set_gather(start_time, end_time)
-	self._data._march_state = CONST.MARCH_STATE.ARRIVED
-	self._data._start_time = start_time
-	self._data._end_time = end_time
+	local march = self._data._march
+	march._state = CONST.MARCH_STATE.ARRIVED
+	march._start_time = start_time
+	march._end_time = end_time
+	self:set_troop_state(DATA_COMMON.TROOP_STATE.GATHER)
 end
 
 function cls_troop:is_gathering()
-	return self:get_march_state() == CONST.MARCH_STATE.ARRIVED
-		and self:get_target_type() == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND
+	return self:get_troop_state() == DATA_COMMON.TROOP_STATE.GATHER
 end
 
 function cls_troop:get_end_pos()
-	return MARCH_PATH.last_pos(self._data._path)
+	return MARCH_PATH.last_pos(self._data._march._path)
 end
 
 function cls_troop:clear_march()
@@ -143,30 +160,32 @@ function cls_troop:clear_march()
 end
 
 function cls_troop:get_march_info()
+	local march = self._data._march
 	return {
 		user_id = self:get_user_id(),
 		troop_idx = self:get_troop_idx(),
 		target_type = self:get_target_type(),
 		target_id = self:get_target_id(),
-		path = MARCH_PATH.copy(self._data._path),
-		start_time = self._data._start_time,
-		end_time = self._data._end_time,
+		path = MARCH_PATH.copy(march._path),
+		start_time = march._start_time,
+		end_time = march._end_time,
 	}
 end
 
 function cls_troop:get_march_pto()
-	local sx, sy = MARCH_PATH.first_pos(self._data._path)
-	local ex, ey = MARCH_PATH.last_pos(self._data._path)
+	local march = self._data._march
+	local sx, sy = MARCH_PATH.first_pos(march._path)
+	local ex, ey = MARCH_PATH.last_pos(march._path)
 	return {
 		troopIdx = self:get_troop_idx(),
 		targetType = self:get_target_type(),
 		targetId = self:get_target_id(),
 		startPos = {x = math.floor(sx), y = math.floor(sy)},
 		endPos = {x = math.floor(ex), y = math.floor(ey)},
-		startTime = self._data._start_time,
-		endTime = self._data._end_time,
+		startTime = march._start_time,
+		endTime = march._end_time,
 		state = self:get_march_state(),
-		path = MARCH_PATH.to_pto(self._data._path),
+		path = MARCH_PATH.to_pto(march._path),
 	}
 end
 

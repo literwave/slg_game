@@ -283,7 +283,7 @@ local function clear_home_troops(user)
 	end
 	for _, troop in pairs(TROOP_MGR.get_user_troops(user_id) or {}) do
 		if troop:get_march_state() == 0 then
-			skynet.call(world, "lua", "remove_troop", user_id, troop:get_troop_idx())
+			skynet.call(world, "lua", "hide_troop", user_id, troop:get_troop_idx())
 		end
 	end
 end

@@ -1,6 +1,8 @@
 -- 联盟：每个联盟一份文档，启动时全部加载，玩家归属、申请、重名索引都在内存里重建
 -- 邀请只存内存，重启后失效
 
+local skynet = require "skynet"
+
 local CHANGE = CONST.ALLIANCE_CHANGE
 
 -- 模块变量热更时保留，loaded 防止热更后重复加载

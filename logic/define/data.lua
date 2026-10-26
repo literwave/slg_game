@@ -26,6 +26,7 @@ local DATA_ALLIANCE_POS = sharedata.query("AlliancePos")
 local DATA_ALLIANCE_JOIN_TYPE = sharedata.query("AllianceJoinType")
 local DATA_ENTITY_TYPE = sharedata.query("EntityType")
 local DATA_TARGET_TYPE = sharedata.query("TargetType")
+local DATA_TROOP_STATE = sharedata.query("TroopState")
 local DATA_REPORT_TYPE = sharedata.query("ReportType")
 local DATA_MAIL = sharedata.query("Mail")
 local DATA_MAIL_KIND = sharedata.query("MailKind")
@@ -52,6 +53,7 @@ end
 local function init_enum()
 	ENTITY_TYPE = build_enum(DATA_ENTITY_TYPE)
 	TARGET_TYPE = build_enum(DATA_TARGET_TYPE)
+	TROOP_STATE = build_enum(DATA_TROOP_STATE)
 	REPORT_TYPE = build_enum(DATA_REPORT_TYPE)
 	RANK_TYPE = build_enum(DATA_RANK_TYPE)
 	CHAT_CHANNEL = build_enum(DATA_CHAT_CHANNEL)
@@ -120,6 +122,10 @@ end
 
 function get_troop_pos_cnt()
 	return get_value_by_key(7)
+end
+
+function get_mark_max_cnt()
+	return get_value_by_key(18)
 end
 
 local function get_report_info(report_id)

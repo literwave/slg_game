@@ -127,7 +127,7 @@ function on_arrive(user_id, troop_idx, end_time)
 	local pto = troop:get_march_pto()
 	pto.state = CONST.MARCH_STATE.ARRIVED
 	troop:clear_march()
-	world_call("remove_troop", user_id, troop_idx)
+	world_call("hide_troop", user_id, troop_idx)
 	if fd then
 		for_caller.s2c_sync_march(fd, {marchInfo = pto})
 	end
@@ -182,7 +182,7 @@ function on_user_login(user_id)
 				world_call("start_march", troop:get_march_info())
 			end
 		elseif state == 0 then
-			world_call("remove_troop", user_id, troop:get_troop_idx())
+			world_call("hide_troop", user_id, troop:get_troop_idx())
 		elseif state == CONST.MARCH_STATE.ARRIVED and troop:get_target_type() == DATA_COMMON.TARGET_TYPE.MOVE then
 			world_call("start_march", troop:get_march_info())
 		elseif state == CONST.MARCH_STATE.ARRIVED and (troop:get_target_type() == DATA_COMMON.TARGET_TYPE.ATTACK_MONSTER or troop:is_gathering()) then
@@ -195,7 +195,7 @@ function on_user_login(user_id)
 			end
 		elseif state == CONST.MARCH_STATE.ARRIVED then
 			troop:clear_march()
-			world_call("remove_troop", user_id, troop:get_troop_idx())
+			world_call("hide_troop", user_id, troop:get_troop_idx())
 		end
 	end
 end

@@ -199,7 +199,7 @@ local function on_edit_troop(fd, packet)
 			end
 			seen[one:get_troop_idx()] = true
 			local world = skynet.localname(".world")
-			skynet.call(world, "lua", "remove_troop", user_id, one:get_troop_idx())
+			skynet.call(world, "lua", "hide_troop", user_id, one:get_troop_idx())
 		end
 		sync_map(troop)
 		for _, strip in ipairs(strips) do
@@ -224,7 +224,7 @@ function __init__()
 	for user_id, troops in pairs(all_user_troop_tbl) do
 		for _, troop in pairs(troops) do
 			if troop:get_march_state() == 0 then
-				skynet.call(world, "lua", "remove_troop", user_id, troop:get_troop_idx())
+				skynet.call(world, "lua", "hide_troop", user_id, troop:get_troop_idx())
 			end
 		end
 	end

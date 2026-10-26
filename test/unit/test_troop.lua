@@ -4,16 +4,21 @@ local MGR_FILE = "logic/service/agent/module/troop/mgr.lua"
 local BASE_FILE = "logic/service/agent/module/troop/base.lua"
 
 local function plain_data(data)
+	local march = data._march or {}
+	local march_state = march._state or data._march_state or 0
 	local t = {
 		_user_id = data._user_id,
 		_troop_idx = data._troop_idx,
 		_pos_tbl = {},
-		_march_state = data._march_state or 0,
-		_target_type = 0,
-		_target_id = 0,
-		_path = {},
-		_start_time = 0,
-		_end_time = 0,
+		_troop_state = data._troop_state or (march_state ~= 0 and 1 or 0),
+		_march = {
+			_state = march_state,
+			_target_type = march._target_type or 0,
+			_target_id = march._target_id or 0,
+			_path = march._path or {},
+			_start_time = march._start_time or 0,
+			_end_time = march._end_time or 0,
+		},
 	}
 	for pos, info in pairs(data._pos_tbl or {}) do
 		t._pos_tbl[pos] = {
@@ -33,6 +38,7 @@ local function setup(opts)
 	local doc = {_troops = opts.troops or {}}
 	local user = {soldier = opts.soldier or 100, told = {}, synced = nil}
 	function user:get_user_id() return 1 end
+	function user:has_birth_pos() return false end
 	function user:get_fd() return 7 end
 	function user:get_soldier_cnt() return self.soldier end
 	function user:set_soldier_cnt(n)
@@ -53,6 +59,14 @@ local function setup(opts)
 	}
 	env.CONST = {MARCH_STATE = {MOVING = 1, ARRIVED = 2}, EVENT = {ON_USER_LOGOUT = 1}}
 	env.MARCH_PATH = {}
+	env.skynet = {localname = function() end, call = function() end}
+	local real_require = require
+	env.require = function(name)
+		if name == "skynet" then
+			return env.skynet
+		end
+		return real_require(name)
+	end
 	assert(loadfile(BASE_FILE, "t", env))()
 	env.TROOP_BASE = {cls_troop = env.cls_troop}
 	env.DATA_COMMON = {

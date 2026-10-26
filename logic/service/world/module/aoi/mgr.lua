@@ -93,6 +93,9 @@ local function entity_pto(e)
 end
 
 local function in_view(f, e)
+	if e.hidden then
+		return false
+	end
 	local dx = e.x - f.x
 	local dy = e.y - f.y
 	return dx * dx + dy * dy <= RADIUS2
@@ -709,6 +712,20 @@ function park_troop(user_id, troop_idx, x, y)
 	refresh_entity(e)
 end
 
+-- 回到主城：实体留着，退出视野，也不再参与同格遭遇
+function hide_troop(user_id, troop_idx)
+	local id = CONST.troop_entity_id(user_id, troop_idx)
+	local e = entities[id]
+	if not e then
+		return
+	end
+	ENCOUNTER_MGR.unindex(e)
+	ENCOUNTER_MGR.clear_flee(e)
+	e.hidden = true
+	e.moving = false
+	leave_all(e)
+end
+
 function remove_troop(user_id, troop_idx)
 	local id = CONST.troop_entity_id(user_id, troop_idx)
 	local e = entities[id]
@@ -898,26 +915,27 @@ local function restore_marches()
 	local now = TIME.os_bj_sec()
 	for _, doc in pairs(troops) do
 		for _, troop in pairs(doc._troops or {}) do
-			if troop._user_id and troop._troop_idx then
-				if troop._march_state == CONST.MARCH_STATE.MOVING then
-					if troop._end_time and now >= troop._end_time then
+			local march = troop._march
+			if troop._user_id and troop._troop_idx and march then
+				if march._state == CONST.MARCH_STATE.MOVING then
+					if march._end_time and now >= march._end_time then
 						local agent = agent_of(troop._user_id)
 						if agent then
-							skynet.send(agent, "lua", "march_arrive", troop._user_id, troop._troop_idx, troop._end_time)
+							skynet.send(agent, "lua", "march_arrive", troop._user_id, troop._troop_idx, march._end_time)
 						end
 					else
 						start_march({
 							user_id = troop._user_id,
 							troop_idx = troop._troop_idx,
-							target_type = troop._target_type,
-							target_id = troop._target_id,
-							path = troop._path or {},
-							start_time = troop._start_time,
-							end_time = troop._end_time,
+							target_type = march._target_type,
+							target_id = march._target_id,
+							path = march._path or {},
+							start_time = march._start_time,
+							end_time = march._end_time,
 						})
 					end
-				elseif troop._march_state == CONST.MARCH_STATE.ARRIVED and troop._target_type == DATA_COMMON.TARGET_TYPE.MOVE and troop_has_hero(troop) then
-					local tail = troop._path and troop._path[#troop._path]
+				elseif march._state == CONST.MARCH_STATE.ARRIVED and march._target_type == DATA_COMMON.TARGET_TYPE.MOVE and troop_has_hero(troop) then
+					local tail = march._path and march._path[#march._path]
 					if tail then
 						park_troop(troop._user_id, troop._troop_idx, tail._x, tail._y)
 					end

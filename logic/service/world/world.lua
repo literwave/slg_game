@@ -47,6 +47,10 @@ function CMD.park_troop(_, user_id, troop_idx, x, y)
 	AOI_MGR.park_troop(user_id, troop_idx, x, y)
 end
 
+function CMD.hide_troop(_, user_id, troop_idx)
+	AOI_MGR.hide_troop(user_id, troop_idx)
+end
+
 function CMD.remove_troop(_, user_id, troop_idx)
 	AOI_MGR.remove_troop(user_id, troop_idx)
 end
