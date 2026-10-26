@@ -54,24 +54,21 @@ local function collect_convert(convert_list, hero_id, times)
 	end
 end
 
--- 第一次获得武将，多出来的份数和已经拥有的都按 Hero.Convert 换成碎片
+-- 第一次获得武将，多出来的份数和已经拥有的都按 Hero.Convert 换成碎片，紧跟在这一条后面
 local function reward_hero(ret, user_id, reward_info_list, reason_list)
-	local convert_list = {}
 	for _, reward_info in ipairs(reward_info_list) do
 		local hero_id = reward_info.item_id
 		local times = reward_info.item_count or 1
+		local convert_list = {}
 		if times > 0 and not HERO_MGR.get_hero_by_type(user_id, hero_id) then
 			HERO_MGR.add_hero(user_id, hero_id, reason_list)
 			ret[#ret + 1] = GLOBAL_FUNC.gen_reward_info(CONST.REWARD_TYPE_HERO, hero_id, 1)
 			times = times - 1
 		end
 		collect_convert(convert_list, hero_id, times)
-	end
-	if #convert_list == 0 then
-		return
-	end
-	for _, info in ipairs(reward_user(user_id, convert_list, reason_list)) do
-		ret[#ret + 1] = info
+		for _, info in ipairs(reward_user(user_id, convert_list, reason_list)) do
+			ret[#ret + 1] = info
+		end
 	end
 end
 
@@ -101,23 +98,16 @@ local function give_reward(ret, user_id, reward_type, reward_info_list, reason_l
 end
 
 function reward_user(user_id, reward_list, reason_list)
-	local reward_tbl = {}
-	for _, reward_info in pairs(reward_list) do
+	local actual_rwd_list = {}
+	for _, reward_info in ipairs(reward_list) do
 		local reward_type = reward_info.reward_type
-		if not reward_tbl[reward_type] then
-			reward_tbl[reward_type] = {}
-		end
 		local info = table.deepcopy(reward_info)
 		if (reward_type == CONST.REWARD_TYPE_ITEM or reward_type == CONST.REWARD_TYPE_RES) and info.item_count > 0 then
 			local ctx = {item_id = info.item_id, rate = 1}
 			EVENT.dispatch(CONST.EVENT.ON_CALC_ITEM_REWARD, user_id, ctx)
 			info.item_count = math.floor(info.item_count * ctx.rate)
 		end
-		table.insert(reward_tbl[reward_type], info)
-	end
-	local actual_rwd_list = {}
-	for reward_type, reward_info_list in pairs(reward_tbl) do
-		give_reward(actual_rwd_list, user_id, reward_type, reward_info_list, reason_list)
+		give_reward(actual_rwd_list, user_id, reward_type, {info}, reason_list)
 	end
 	return actual_rwd_list
 end

@@ -85,4 +85,16 @@ function T.same_batch_second_copy_converts()
 	assert(got[1].reward_type == 3 and got[2].item_id == 11001)
 end
 
+function T.mixed_types_keep_input_order()
+	local M = setup()
+	local got = M.reward_user(1, {
+		{reward_type = 1, item_id = 1, item_count = 10},
+		{reward_type = 3, item_id = 1001, item_count = 1},
+		{reward_type = 1, item_id = 2, item_count = 20},
+	}, {})
+	assert(got[1].reward_type == 1 and got[1].item_id == 1 and got[1].item_count == 10)
+	assert(got[2].reward_type == 3 and got[2].item_id == 1001)
+	assert(got[3].reward_type == 1 and got[3].item_id == 2 and got[3].item_count == 20)
+end
+
 return T

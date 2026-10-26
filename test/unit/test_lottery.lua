@@ -49,7 +49,8 @@ local function setup(opt)
 		end,
 	}
 	env.REWARD_MGR = {
-		reward_user_and_show = function(_, list, _, show_type_list) shown = {list, show_type_list} end,
+		reward_user = function(_, list) return list end,
+		show_reward = function(_, list, show_type_list) shown = {list, show_type_list} end,
 	}
 	env.LOG = {_error = function(...) user.err = {...} end}
 	env.for_maker = {}
@@ -78,6 +79,7 @@ function T.single_draw_shows_window()
 	assert(shown[2][1] == 1, "普通弹窗")
 	assert(shown[1][1].item_id == 1)
 	assert(sent.useLotteryTimes == 1 and sent.lotteryTimes == 4)
+	assert(sent.rewardList[1].rewardType == 1 and sent.rewardList[1].itemId == 1 and sent.rewardList[1].itemCount == 500)
 end
 
 function T.short_cost_sends_nothing()
@@ -106,7 +108,35 @@ function T.ten_draw_uses_hero_pool_and_half_cost()
 	assert(user.checked[1].count == 5)
 	assert(user.times == 13)
 	assert(#shown[1] == 10 and shown[1][1].reward_type == 3 and shown[1][1].item_id == 1001)
-	assert(sent.lotteryTimes == 13)
+	assert(sent.lotteryTimes == 13 and #sent.rewardList == 10 and sent.rewardList[1].rewardType == 3)
+end
+
+function T.converted_hero_keeps_draw_order()
+	local M, _, result = setup({
+		id = 2,
+		cost = {{item_id = 103, count = 2}},
+		common = {{reward_type = 3, item_id = 1001, item_count = 1, weight = 1}},
+		hero = {},
+	})
+	local seen = false
+	M.REWARD_MGR.reward_user = function(_, list)
+		local out = {}
+		for _, one in ipairs(list) do
+			if one.reward_type == 3 and seen then
+				out[#out + 1] = {reward_type = 1, item_id = 11001, item_count = 50}
+			else
+				if one.reward_type == 3 then
+					seen = true
+				end
+				out[#out + 1] = one
+			end
+		end
+		return out
+	end
+	M.for_maker.c2s_user_lottery(9, {useLotteryTimes = 2})
+	local _, sent = result()
+	assert(sent.rewardList[1].rewardType == 3 and sent.rewardList[1].itemId == 1001)
+	assert(sent.rewardList[2].rewardType == 1 and sent.rewardList[2].itemId == 11001 and sent.rewardList[2].itemCount == 50)
 end
 
 return T

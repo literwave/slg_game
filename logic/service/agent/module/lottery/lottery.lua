@@ -85,8 +85,20 @@ local function on_user_lottery(fd, packet)
 	assert(ITEM_MGR.del_cost_list(user_id, cost_list, reason_list))
 	lottery_times = lottery_times + use_lottery_times
 	user:set_lottery_times(lottery_times)
-	REWARD_MGR.reward_user_and_show(user_id, reward_list, reason_list, {CONST.REWARD_SHOW_TYPE.WINDOW})
-	for_caller.s2c_user_lottery(fd, {useLotteryTimes = use_lottery_times, lotteryTimes = lottery_times})
+	local actual_list = REWARD_MGR.reward_user(user_id, reward_list, reason_list)
+	local reward_pto_list = {}
+	for _, info in ipairs(actual_list) do
+		reward_pto_list[#reward_pto_list + 1] = {
+			rewardType = info.reward_type,
+			itemId = info.item_id,
+			itemCount = info.item_count,
+		}
+	end
+	for_caller.s2c_user_lottery(fd, {
+		useLotteryTimes = use_lottery_times,
+		lotteryTimes = lottery_times,
+		rewardList = reward_pto_list,
+	})
 	EVENT.dispatch(CONST.EVENT.ON_LOTTERY, user_id, use_lottery_times)
 end
 
