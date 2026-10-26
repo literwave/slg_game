@@ -14,6 +14,45 @@ local function draw(pool)
 	return rand_item_by_weight(weight_list)
 end
 
+local function pool_weight(pool)
+	local sum = 0
+	for _, entry in ipairs(pool or EMPTY_TABLE) do
+		sum = sum + (entry.weight or 0)
+	end
+	return sum
+end
+
+-- 两个池先按权重总和决定进哪个池，再在池内抽一条
+local function draw_once(conf)
+	local common_weight = pool_weight(conf.CommonPools)
+	local hero_weight = pool_weight(conf.HeroPools)
+	local pool = conf.CommonPools
+	if hero_weight > 0 and (common_weight <= 0 or math.random(common_weight + hero_weight) > common_weight) then
+		pool = conf.HeroPools
+	end
+	return draw(pool)
+end
+
+-- Lottery.CostList 是 {item_id, count}，扣费接口要 cost_type 和 itemId
+local function item_cost_list(cost_list, rate)
+	local list = {}
+	for _, cost in ipairs(cost_list or EMPTY_TABLE) do
+		local count = cost.count or 0
+		if rate < 100 then
+			count = math.floor(count * rate / 100)
+			if count < 1 then
+				count = 1
+			end
+		end
+		list[#list + 1] = {
+			cost_type = CONST.COST_TYPE.ITEM,
+			itemId = cost.item_id,
+			count = count,
+		}
+	end
+	return list
+end
+
 -- 先把每一发都抽完、确认奖池可用，再扣消耗；中途失败不会白扣
 local function on_user_lottery(fd, packet)
 	local user = USER_MGR.get_user_by_fd(fd)
@@ -26,48 +65,27 @@ local function on_user_lottery(fd, packet)
 		return
 	end
 	local user_id = user:get_user_id()
-	local cost_list = conf.CostList
 	local ctx = {lottery_id = use_lottery_times, rate = 100}
 	EVENT.dispatch(CONST.EVENT.ON_CALC_LOTTERY_COST, user_id, ctx)
-	local rate = ctx.rate
-	if rate < 100 then
-		cost_list = {}
-		for _, cost in ipairs(conf.CostList) do
-			local count = math.floor(cost.count * rate / 100)
-			if count < 1 then
-				count = 1
-			end
-			cost_list[#cost_list + 1] = {
-				cost_type = cost.cost_type,
-				itemId = cost.itemId,
-				count = count,
-			}
-		end
-	end
+	local cost_list = item_cost_list(conf.CostList, ctx.rate)
 	if not ITEM_MGR.check_cost_enough(user_id, cost_list) then
 		return
 	end
 	local lottery_times = user:get_lottery_times()
 	local reward_list = {}
 	for _ = 1, use_lottery_times do
-		lottery_times = lottery_times + 1
-		local entry
-		if conf.HeroPools and conf.UpHeroTimes and lottery_times >= conf.UpHeroTimes then
-			entry = draw(conf.HeroPools)
-			lottery_times = 0
-		else
-			entry = draw(conf.CommonPools)
-		end
+		local entry = draw_once(conf)
 		if not entry then
 			LOG._error("lottery pool empty: %s", use_lottery_times)
 			return
 		end
-		table.insert(reward_list, GLOBAL_FUNC.gen_reward_info(entry.reward_type, entry.item_id, entry.item_count))
+		reward_list[#reward_list + 1] = GLOBAL_FUNC.gen_reward_info(entry.reward_type, entry.item_id, entry.item_count)
 	end
 	local reason_list = {CONST.FLOW_REASON.LOTTERY, use_lottery_times}
 	assert(ITEM_MGR.del_cost_list(user_id, cost_list, reason_list))
+	lottery_times = lottery_times + use_lottery_times
 	user:set_lottery_times(lottery_times)
-	REWARD_MGR.reward_user_and_show(user_id, reward_list, reason_list)
+	REWARD_MGR.reward_user_and_show(user_id, reward_list, reason_list, {CONST.REWARD_SHOW_TYPE.WINDOW})
 	for_caller.s2c_user_lottery(fd, {useLotteryTimes = use_lottery_times, lotteryTimes = lottery_times})
 	EVENT.dispatch(CONST.EVENT.ON_LOTTERY, user_id, use_lottery_times)
 end

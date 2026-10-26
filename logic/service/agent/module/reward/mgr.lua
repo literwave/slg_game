@@ -39,11 +39,39 @@ local function reward_resource(ret, user_id, reward_info_list, reason_list)
 	end
 end
 
+local function collect_convert(convert_list, hero_id, times)
+	local conf = DATA_COMMON.get_hero_info_by_type(hero_id)
+	local convert = conf and conf.Convert
+	if not convert or times < 1 then
+		return
+	end
+	for _, one in ipairs(convert) do
+		convert_list[#convert_list + 1] = {
+			reward_type = one.reward_type,
+			item_id = one.item_id,
+			item_count = (one.item_count or 0) * times,
+		}
+	end
+end
+
+-- 第一次获得武将，多出来的份数和已经拥有的都按 Hero.Convert 换成碎片
 local function reward_hero(ret, user_id, reward_info_list, reason_list)
-	for _, reward_info in pairs(reward_info_list) do
-		local hero_type = reward_info.item_id
-		HERO_MGR.add_hero(user_id, hero_type, reason_list)
-		table.insert(ret, reward_info)
+	local convert_list = {}
+	for _, reward_info in ipairs(reward_info_list) do
+		local hero_id = reward_info.item_id
+		local times = reward_info.item_count or 1
+		if times > 0 and not HERO_MGR.get_hero_by_type(user_id, hero_id) then
+			HERO_MGR.add_hero(user_id, hero_id, reason_list)
+			ret[#ret + 1] = GLOBAL_FUNC.gen_reward_info(CONST.REWARD_TYPE_HERO, hero_id, 1)
+			times = times - 1
+		end
+		collect_convert(convert_list, hero_id, times)
+	end
+	if #convert_list == 0 then
+		return
+	end
+	for _, info in ipairs(reward_user(user_id, convert_list, reason_list)) do
+		ret[#ret + 1] = info
 	end
 end
 

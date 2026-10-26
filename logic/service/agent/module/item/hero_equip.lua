@@ -4,26 +4,6 @@ function cls_item:__init__(oci)
 	Super(cls_item).__init__(self, oci)
 end
 
-function cls_item:get_item_pto_info()
-	local d = self._data
-	return {
-		itemUid = self:get_item_uid(),
-		itemId = self:get_item_id(),
-		itemCnt = self:get_cnt(),
-		strengthen_lv = d._strengthen_lv,
-		strengthen_exp = d._strengthen_exp,
-		forge_lv = d._forge_lv,
-	}
-end
-
-function cls_item:sync_to_client()
-	local info = self:get_item_pto_info()
-	local fd = USER_MGR.get_fd_by_user_id(self:get_user_id())
-	if fd then
-		for_caller.s2c_sync_item_data(fd, info)
-	end
-end
-
 function cls_item:set_put_on_hero_type(hero_type)
 	self._data._put_on_hero_type = hero_type or 0
 end

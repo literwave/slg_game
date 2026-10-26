@@ -107,6 +107,30 @@ function T.mixed_costs_deducted()
 	assert(ev and ev[1] == "on_item_change" and ev[2] == 1 and ev[3] == 7, "item change event")
 end
 
+function T.all_item_data_lists_stacks()
+	local M = setup()
+	local sent
+	M.for_maker = {}
+	M.for_caller = {s2c_req_all_item_data = function(_, packet) sent = packet end}
+	M.USER_MGR.get_user_id_by_fd = function(fd) return fd == 9 and 1 or nil end
+	M.__init__()
+	M.for_maker.c2s_req_all_item_data(9, {})
+	assert(sent and #sent.itemList == 2)
+	local cnt = 0
+	for _, info in ipairs(sent.itemList) do
+		assert(info.itemId == 7 and info.itemUid and info.itemCnt > 0)
+		cnt = cnt + info.itemCnt
+	end
+	assert(cnt == 7)
+	local protobuf = require "protobuf"
+	protobuf.register_file("game_common/pb/item.pb")
+	local back = protobuf.decode("Item.s2c_req_all_item_data", protobuf.encode("Item.s2c_req_all_item_data", sent))
+	assert(#back.itemList == 2 and back.itemList[1].itemId == 7)
+	sent = nil
+	M.for_maker.c2s_req_all_item_data(0, {})
+	assert(sent == nil)
+end
+
 function T.invalid_costs_rejected()
 	local M = setup()
 	assert(not M.check_cost_enough(1, {{cost_type = 9, count = 1}}))

@@ -24,7 +24,7 @@ description: >-
 | `module/user` | `USER_MGR` | 登录后的玩家档案、心跳、创角、迁城、头像、预备兵 | `User`：`c2s_user_base_info`、`c2s_user_create`、`c2s_move_city`、`c2s_change_head_icon`、`c2s_heart_beat`、`c2s_client_load_ok` |
 | `module/resource` | `RESOURCE` | 资源栏查询（粮、水、木、石） | `User.c2s_req_user_res` |
 | `module/hero` | `HERO_MGR` | 武将 | `c2s_req_all_hero_base_info` |
-| `module/item` | `ITEM_MGR` | 道具、武将装备。建造和发奖来扣加，没有独立协议 | — |
+| `module/item` | `ITEM_MGR` | 道具、武将装备。全量快照和单条同步；建造和发奖来扣加 | `Item`：`c2s_req_all_item_data`、`s2c_sync_item_data` |
 | `module/build` | `BUILD_MGR` | 内城建筑：建造、升级 | `Build` |
 | `module/troop` | `TROOP_MGR` | 编队。`count` 是可用兵力，伤兵跟着武将 | `World`：`c2s_req_troop`、`c2s_edit_troop` |
 | `module/march` | `MARCH_MGR` | 出征、回城、采集结算；视野焦点转到 `.world` | `World`：`c2s_march`、`c2s_cancel_march`、`c2s_req_march_list`、`c2s_aoi_focus` |

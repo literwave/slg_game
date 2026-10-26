@@ -180,6 +180,7 @@ function get_build_type_by_id(bid)
 end
 
 -- Lottery 表的 Id 就是一次抽几发；没配的抽数不允许
+-- CostList 是道具消耗 {item_id, count}。普通池和武将池按权重总和选池，池内再按 weight 抽
 -- 奖池每项 {reward_type, item_id, item_count, weight}
 function get_lottery_conf(use_lottery_times)
 	return DATA_LOTTERY[use_lottery_times]

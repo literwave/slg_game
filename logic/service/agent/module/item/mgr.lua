@@ -262,6 +262,33 @@ function check_cost_enough(user_id, cost_list)
 	return true
 end
 
+local function item_pto(item)
+	return {
+		itemUid = item:get_item_uid(),
+		itemId = item:get_item_id(),
+		itemCnt = item:get_cnt(),
+	}
+end
+
+local function on_req_all_item_data(fd)
+	local user_id = USER_MGR.get_user_id_by_fd(fd)
+	if not user_id then
+		return
+	end
+	local item_list = {}
+	for _, item in pairs(try_init_user_data(user_id) or EMPTY_TABLE) do
+		local info = item_pto(item)
+		if info.itemCnt > 0 then
+			item_list[#item_list + 1] = info
+		end
+	end
+	for_caller.s2c_req_all_item_data(fd, {itemList = item_list})
+end
+
+function __init__()
+	for_maker.c2s_req_all_item_data = on_req_all_item_data
+end
+
 -- 先整体校验再扣，不够就一样都不扣
 function del_cost_list(user_id, cost_list, reason_list)
 	if not check_cost_enough(user_id, cost_list) then

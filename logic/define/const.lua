@@ -14,6 +14,12 @@ REWARD_TYPE_RES = 2
 REWARD_TYPE_HERO = 3
 REWARD_TYPE_SOLDIER = 4
 
+-- s2c_show_reward.showTypeList。0 不展示，1 普通弹窗；大于 1 留给专用来源
+REWARD_SHOW_TYPE = {
+	NONE = 0,
+	WINDOW = 1,
+}
+
 LOCK_TIME = 1000
 
 BUILD_TYPE = {
