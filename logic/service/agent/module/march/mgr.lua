@@ -170,7 +170,7 @@ end
 function on_user_login(user_id)
 	local user = USER_MGR.try_init_user(user_id)
 	if user:has_birth_pos() then
-		world_call("upsert_city", user_id, user:get_birth_x(), user:get_birth_y())
+		USER_MGR.sync_city_aoi(user)
 	end
 	local now = TIME.os_bj_sec()
 	for _, troop in pairs(TROOP_MGR.get_user_troops(user_id)) do

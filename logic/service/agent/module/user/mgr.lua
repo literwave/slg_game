@@ -102,6 +102,22 @@ function try_init_user(user_id)
 	return user
 end
 
+-- 主城进视野时带玩家名和主城建筑等级。没有主城坐标则不推
+function sync_city_aoi(user)
+	if not user or not user:has_birth_pos() then
+		return
+	end
+	local world = skynet.localname(".world")
+	if not world then
+		return
+	end
+	local build = BUILD_MGR.get_build_by_bid(user:get_user_id(), DATA_COMMON.get_main_city_bid())
+	skynet.call(world, "lua", "upsert_city", user:get_user_id(), user:get_birth_x(), user:get_birth_y(), {
+		name = user:get_name(),
+		level = build:get_level(),
+	})
+end
+
 function ref_login(user_id, fd, user)
 	user_id_to_fd[user_id] = fd
 	fd_to_user_id[fd] = user_id
@@ -254,10 +270,7 @@ local function on_user_create(fd, packet)
 	user:set_birth_pos(pos.x, pos.y)
 	user:set_sex(sex)
 	user:set_name(name)
-	local world = skynet.localname(".world")
-	if world then
-		skynet.call(world, "lua", "upsert_city", user:get_user_id(), pos.x, pos.y)
-	end
+	sync_city_aoi(user)
 	for_caller.s2c_user_create(fd, {
 		name = name,
 		sex = sex,
@@ -318,11 +331,15 @@ function try_move_city(user, x, y, cost)
 	if cost_list and not ITEM_MGR.check_cost_enough(user_id, cost_list) then
 		return false, "迁城令不足"
 	end
-	if not skynet.call(".world", "lua", "move_city", user_id, x, y, old_x, old_y) then
+	local show = {
+		name = user:get_name(),
+		level = BUILD_MGR.get_build_by_bid(user_id, DATA_COMMON.get_main_city_bid()):get_level(),
+	}
+	if not skynet.call(".world", "lua", "move_city", user_id, x, y, old_x, old_y, show) then
 		return false, "目标无法迁入"
 	end
 	if cost_list and not ITEM_MGR.del_cost_list(user_id, cost_list, {CONST.FLOW_REASON.MOVE_CITY, x, y}) then
-		if skynet.call(".world", "lua", "move_city", user_id, old_x, old_y, x, y) then
+		if skynet.call(".world", "lua", "move_city", user_id, old_x, old_y, x, y, show) then
 			return false, "迁城令不足"
 		end
 		user:set_birth_pos(x, y)

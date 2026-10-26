@@ -48,7 +48,7 @@ description: >-
 |------|------|
 | `logind` | 账号登录，签发 token。客户端先连这里 |
 | `gated` / `gate_worker` | 网关接入、校验 token、把包转到 agent |
-| `world` | 大地图、出生点、寻路（`map`）、视野（`aoi`）、主城实体（`entity`）、同格遭遇（`encounter`）、资源地占领 |
+| `world` | 大地图、出生点、寻路（`map`）、视野（`aoi`）、主城实体、同格遭遇、资源地占领。主城 AOI 带玩家名和主城建筑等级，改名或主城升级走 `s2c_aoi_update` |
 | `battle` | 只算战斗，不存盘。同一目标固定进同一个服务 |
 | `mail` | 邮件存取。领奖回 agent |
 | `union` | 联盟存盘（`alliance`）；聊天只在内存（`chat`），重启清空 |

@@ -19,15 +19,15 @@ function CMD.alloc_birth_pos()
 	return MAP_MGR.alloc_birth_pos()
 end
 
-function CMD.upsert_city(_, user_id, x, y)
-	AOI_MGR.upsert_city(user_id, x, y)
+function CMD.upsert_city(_, user_id, x, y, info)
+	AOI_MGR.upsert_city(user_id, x, y, info)
 end
 
-function CMD.move_city(_, user_id, x, y, old_x, old_y)
+function CMD.move_city(_, user_id, x, y, old_x, old_y, info)
 	if not MAP_MGR.relocate_birth(old_x, old_y, x, y) then
 		return false
 	end
-	AOI_MGR.upsert_city(user_id, x, y)
+	AOI_MGR.upsert_city(user_id, x, y, info)
 	return true
 end
 

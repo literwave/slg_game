@@ -115,8 +115,8 @@ function T.bucket_edge()
 	local A = load_aoi()
 	local r = A.CONST.AOI_RADIUS
 	local focus_x = r - 1
-	A.upsert_city(1, focus_x + r, 0)
-	A.upsert_city(2, focus_x + r * 4, 0)
+	A.upsert_city(1, focus_x + r, 0, {name = "a", level = 1})
+	A.upsert_city(2, focus_x + r * 4, 0, {name = "b", level = 1})
 	local near = A.focus(10, focus_x, 0)
 	assert(has_pto(near.enter, A.CONST.city_entity_id(1)), "city one bucket away is inside the radius")
 	assert(not has_pto(near.enter, A.CONST.city_entity_id(2)), "city outside the 3x3 buckets stays out")
@@ -226,7 +226,7 @@ function T.step_error_still_flushes()
 		return {}, {}
 	end
 	clear_sends()
-	A.upsert_city(3, 1, 0)
+	A.upsert_city(3, 1, 0, {name = "c", level = 1})
 	local list = aoi_pushes()
 	assert(#list == 1, "a failed tick does not swallow the next push")
 	assert(#list[1].pack.enter == 1)

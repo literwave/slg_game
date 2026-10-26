@@ -176,6 +176,11 @@ function get_build_detail(bid)
 	return DATA_BUILD_DETAIL[bid]
 end
 
+-- 主城建筑。协议里 AOI 主城 level 用的就是这个 Id
+function get_main_city_bid()
+	return 1
+end
+
 -- BuildingLv.BuildingType 指向 BuildingDetail.Id，协议里的 bid 也是这个 Id
 function get_build_type_by_id(bid)
 	local conf = DATA_BUILD_DETAIL[bid]

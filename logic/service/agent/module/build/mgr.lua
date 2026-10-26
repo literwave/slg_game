@@ -41,6 +41,13 @@ local function try_init_user_builds(user_id)
 	return all_user_build_tbl[user_id]
 end
 
+local function sync_main_city(user_id, bid)
+	if bid ~= DATA_COMMON.get_main_city_bid() then
+		return
+	end
+	USER_MGR.sync_city_aoi(USER_MGR.get_user_by_id(user_id))
+end
+
 function get_build_by_bid(user_id, bid)
 	local build_tbl = try_init_user_builds(user_id)
 	if not build_tbl then
@@ -66,6 +73,7 @@ local function init_user_builds(user_id)
 		})
 		EVENT.dispatch(CONST.EVENT.ON_BUILD_LEVEL, user_id, info.bid, info.level)
 	end
+	sync_main_city(user_id, DATA_COMMON.get_main_city_bid())
 end
 
 function on_user_login(user_id)
@@ -177,6 +185,7 @@ local function on_create_build(fd, packet)
 	})
 	build:sync_to_client()
 	EVENT.dispatch(CONST.EVENT.ON_BUILD_LEVEL, user_id, bid, 1)
+	sync_main_city(user_id, bid)
 end
 
 local function on_up_build(fd, packet)
@@ -212,6 +221,7 @@ local function on_up_build(fd, packet)
 	build:set_level(next_lv)
 	build:sync_to_client()
 	EVENT.dispatch(CONST.EVENT.ON_BUILD_LEVEL, user_id, bid, next_lv)
+	sync_main_city(user_id, bid)
 end
 
 function __init__()

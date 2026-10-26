@@ -89,6 +89,10 @@ local function entity_pto(e)
 		pto.startTime = e.start_time
 		pto.endTime = e.end_time
 	end
+	if e.entity_type == DATA_COMMON.ENTITY_TYPE.CITY then
+		pto.name = e.name
+		pto.level = e.level
+	end
 	return pto
 end
 
@@ -448,7 +452,7 @@ function leave_res_land(entity_id, user_id, troop_idx, gathered)
 	return real
 end
 
-function upsert_city(user_id, x, y)
+function upsert_city(user_id, x, y, info)
 	local id = CONST.city_entity_id(user_id)
 	local e = entities[id]
 	if not e then
@@ -461,6 +465,8 @@ function upsert_city(user_id, x, y)
 		}
 		entities[id] = e
 	end
+	e.name = info.name
+	e.level = info.level
 	e.x = x
 	e.y = y
 	refresh_entity(e)
@@ -951,11 +957,23 @@ function init()
 	end
 	-- 资源地在 mapRes 快照里，按格子类型和等级读，不再随机铺到空地上
 	local users = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO)
+	local city_level = {}
+	local main_bid = DATA_COMMON.get_main_city_bid()
+	for _, doc in pairs(MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_BUILD)) do
+		for _, build in pairs(doc._builds or {}) do
+			if build._bid == main_bid and build._user_id then
+				city_level[build._user_id] = build._level
+			end
+		end
+	end
 	local birth = {}
 	for _, dat in pairs(users) do
 		if dat._has_birth and dat._user_id then
 			birth[dat._user_id] = {x = dat._birth_x, y = dat._birth_y}
-			upsert_city(dat._user_id, dat._birth_x, dat._birth_y)
+			upsert_city(dat._user_id, dat._birth_x, dat._birth_y, {
+				name = dat._name,
+				level = city_level[dat._user_id],
+			})
 		end
 	end
 	ENCOUNTER_MGR.load_alliances()
