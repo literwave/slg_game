@@ -18,10 +18,15 @@ local battle_seq = 0
 alliance_of = alliance_of or {}
 
 function set_user_alliance(user_id, alliance_id)
-	if alliance_id and alliance_id > 0 then
-		alliance_of[user_id] = alliance_id
+	local old_id = alliance_of[user_id]
+	local new_id = alliance_id and alliance_id > 0 and alliance_id or nil
+	if new_id then
+		alliance_of[user_id] = new_id
 	else
 		alliance_of[user_id] = nil
+	end
+	if old_id ~= new_id and MAP_MGR and MAP_MGR.on_user_alliance then
+		MAP_MGR.on_user_alliance(user_id, old_id, new_id)
 	end
 end
 

@@ -217,7 +217,7 @@ function attack_monster(user, troop)
 	})
 end
 
--- 部队到达资源地：和随机一组守卫打，赢了立即发奖并占领。返回采满时间，没占下返回 nil
+-- 部队到达地块。资源地打守军，赢了占领并采集。空地没有守军，占上后留在原地
 function occupy_res_land(user, troop)
 	local user_id = user:get_user_id()
 	local entity_id = troop:get_target_id()
@@ -226,11 +226,50 @@ function occupy_res_land(user, troop)
 		USER_MGR.tell_me(user_id, "目标已消失")
 		return
 	end
-	if info.owner_id ~= 0 then
-		USER_MGR.tell_me(user_id, "资源地已被占领")
+	if info.covered then
+		USER_MGR.tell_me(user_id, "城池范围内不能占领")
+		return
+	end
+	local empty = info.cfg_id == 0
+	if info.owner_id ~= 0 and info.owner_id ~= user_id then
+		USER_MGR.tell_me(user_id, empty and "这块空地已被占领" or "资源地已被占领")
+		return
+	end
+	if empty then
+		if info.owner_id == 0 and not MARCH_MGR.world_call("land_connected", user_id, info.x, info.y) then
+			USER_MGR.tell_me(user_id, "领地不相连")
+			return
+		end
+		if info.troop_idx ~= 0 and info.troop_idx ~= troop:get_troop_idx() then
+			USER_MGR.tell_me(user_id, "已有部队驻守")
+			return
+		end
+		local _, held = MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
+		if not held then
+			USER_MGR.tell_me(user_id, "无法占领")
+			return
+		end
+		return nil, true
+	end
+	if info.owner_id == user_id then
+		if info.remain <= 0 then
+			USER_MGR.tell_me(user_id, "资源尚未恢复")
+			return
+		end
+		if info.troop_idx ~= 0 and info.troop_idx ~= troop:get_troop_idx() then
+			USER_MGR.tell_me(user_id, "已有部队在采集")
+			return
+		end
+		return MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
+	end
+	if not MARCH_MGR.world_call("land_connected", user_id, info.x, info.y) then
+		USER_MGR.tell_me(user_id, "领地不相连")
 		return
 	end
 	local conf = DATA_COMMON.get_res_land_conf(info.cfg_id)
+	if not conf then
+		return
+	end
 	local group = DATA_COMMON.get_monster_group(conf.MonsterGroups[math.random(#conf.MonsterGroups)])
 	if not group then
 		return

@@ -362,94 +362,25 @@ local function place_group(group_id)
 	refresh_entity(e)
 end
 
--- 资源地：每个配置一块，remain 是剩余储量；采空后在别处重新刷
-local function place_res_land(land_id)
-	local conf = DATA_COMMON.get_res_land_conf(land_id)
-	if not conf then
-		return
+-- 已被占领的地块才进视野。中立地没有实体
+function upsert_land(info)
+	local e = entities[info.id]
+	if not e then
+		e = {
+			id = info.id,
+			entity_type = DATA_COMMON.ENTITY_TYPE.RES_LAND,
+			cfg_id = info.cfg_id,
+			user_id = info.owner_id,
+		}
+		entities[info.id] = e
 	end
-	local eid = CONST.res_land_entity_id(land_id)
-	if entities[eid] then
-		return
-	end
-	local idx = MAP_MGR.alloc_wild_idx()
-	if not idx then
-		skynet.timeout(6000, function()
-			place_res_land(land_id)
-		end)
-		return
-	end
-	local pos = MAP_MGR.pos_of_idx(idx)
-	local e = {
-		id = eid,
-		entity_type = DATA_COMMON.ENTITY_TYPE.RES_LAND,
-		x = pos.x,
-		y = pos.y,
-		owner_id = 0,
-		cfg_id = land_id,
-		birth_idx = idx,
-		remain = conf.Capacity,
-	}
-	entities[eid] = e
+	e.owner_id = info.owner_id
+	e.cfg_id = info.cfg_id
+	e.x = info.x
+	e.y = info.y
+	e.troop_idx = info.troop_idx
+	e.remain = info.remain
 	refresh_entity(e)
-end
-
-function res_land_info(entity_id)
-	local e = entities[entity_id]
-	if not e or e.entity_type ~= DATA_COMMON.ENTITY_TYPE.RES_LAND then
-		return
-	end
-	return {x = e.x, y = e.y, cfg_id = e.cfg_id, owner_id = e.owner_id, troop_idx = e.troop_idx or 0, remain = e.remain}
-end
-
--- 占领后开始采集，采满时通知 agent；返回采满时间，已被占领返回 nil
-function occupy_res_land(entity_id, user_id, troop_idx)
-	local e = entities[entity_id]
-	if not e or e.entity_type ~= DATA_COMMON.ENTITY_TYPE.RES_LAND or e.owner_id ~= 0 then
-		return
-	end
-	local conf = DATA_COMMON.get_res_land_conf(e.cfg_id)
-	local cost = math.ceil(e.remain * CONST.ONE_HOUR_SEC / conf.GatherSpeed)
-	local end_time = TIME.os_bj_sec() + cost
-	local token = {}
-	e.owner_id = user_id
-	e.troop_idx = troop_idx
-	e.gather_token = token
-	skynet.timeout(cost * 100, function()
-		if e.gather_token ~= token then
-			return
-		end
-		local agent = agent_of(user_id)
-		if agent then
-			skynet.send(agent, "lua", "gather_full", user_id, troop_idx, end_time)
-		end
-	end)
-	refresh_entity(e)
-	return end_time
-end
-
--- 部队离开：扣掉采走的储量，返回实际采到的量；不是这支部队占着的返回 nil
-function leave_res_land(entity_id, user_id, troop_idx, gathered)
-	local e = entities[entity_id]
-	if not e or e.entity_type ~= DATA_COMMON.ENTITY_TYPE.RES_LAND or e.owner_id ~= user_id or e.troop_idx ~= troop_idx then
-		return
-	end
-	local real = math.min(gathered, e.remain)
-	e.remain = e.remain - real
-	e.owner_id = 0
-	e.troop_idx = nil
-	e.gather_token = nil
-	if e.remain > 0 then
-		refresh_entity(e)
-		return real
-	end
-	entities[entity_id] = nil
-	MAP_MGR.get_map():release_birth_idx(e.birth_idx)
-	leave_all(e)
-	skynet.timeout(CONST.RES_LAND_REFRESH * 100, function()
-		place_res_land(e.cfg_id)
-	end)
-	return real
 end
 
 function upsert_city(user_id, x, y, info)
@@ -470,6 +401,9 @@ function upsert_city(user_id, x, y, info)
 	e.x = x
 	e.y = y
 	refresh_entity(e)
+	if MAP_MGR then
+		MAP_MGR.set_city(user_id, x, y)
+	end
 end
 
 local function restore_move(e, gen)
@@ -542,7 +476,7 @@ local function winner_plan(e)
 		refresh_entity(e)
 		return {arrive = true, end_time = e.end_time}
 	end
-	local path = MAP_MGR.find_march_path(e.hold_x, e.hold_y, dx, dy)
+	local path = MAP_MGR.find_march_path(e.user_id, e.hold_x, e.hold_y, dx, dy)
 	if not path then
 		e.was_moving = nil
 		ENCOUNTER_MGR.note_flee(e)
@@ -940,9 +874,11 @@ local function restore_marches()
 							end_time = march._end_time,
 						})
 					end
-				elseif march._state == CONST.MARCH_STATE.ARRIVED and march._target_type == DATA_COMMON.TARGET_TYPE.MOVE and troop_has_hero(troop) then
+				elseif march._state == CONST.MARCH_STATE.ARRIVED and troop_has_hero(troop) then
 					local tail = march._path and march._path[#march._path]
-					if tail then
+					local occupy_stay = march._target_type == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND
+						and troop._troop_state == DATA_COMMON.TROOP_STATE.STAY
+					if tail and (march._target_type == DATA_COMMON.TARGET_TYPE.MOVE or occupy_stay) then
 						park_troop(troop._user_id, troop._troop_idx, tail._x, tail._y)
 					end
 				end
@@ -967,6 +903,7 @@ function init()
 		end
 	end
 	local birth = {}
+	MAP_MGR.begin_nav_batch()
 	for _, dat in pairs(users) do
 		if dat._has_birth and dat._user_id then
 			birth[dat._user_id] = {x = dat._birth_x, y = dat._birth_y}
@@ -976,8 +913,10 @@ function init()
 			})
 		end
 	end
+	MAP_MGR.end_nav_batch()
 	ENCOUNTER_MGR.load_alliances()
 	load_agent_list()
+	LAND_MGR.init()
 	restore_marches()
 	skynet.timeout(1, tick)
 end

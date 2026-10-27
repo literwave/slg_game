@@ -135,15 +135,24 @@ function monster_entity_id(group_id)
 	return ENTITY_ID.MONSTER + group_id
 end
 
-function res_land_entity_id(land_id)
-	return ENTITY_ID.RES_LAND + land_id
+-- 地图边长。地块实体 id 用 y * MAP_SIDE + x，客户端同一公式
+MAP_SIDE = 1000
+
+function res_land_cell(x, y)
+	return math.floor(y) * MAP_SIDE + math.floor(x)
 end
 
-function res_land_id_of_entity(entity_id)
-	return entity_id - ENTITY_ID.RES_LAND
+function res_land_entity_id(x, y)
+	return ENTITY_ID.RES_LAND + res_land_cell(x, y)
 end
 
-RES_LAND_REFRESH = 300			-- 资源地采空后多少秒在别处刷新
+function res_land_xy(entity_id)
+	local n = entity_id - ENTITY_ID.RES_LAND
+	if n < 0 or n >= MAP_SIDE * MAP_SIDE then
+		return
+	end
+	return n % MAP_SIDE, math.floor(n / MAP_SIDE)
+end
 
 TASK_TYPE = {
 	MAIN = 1,

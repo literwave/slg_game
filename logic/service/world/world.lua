@@ -31,8 +31,8 @@ function CMD.move_city(_, user_id, x, y, old_x, old_y, info)
 	return true
 end
 
-function CMD.find_march_path(_, sx, sy, ex, ey)
-	return MAP_MGR.find_march_path(sx, sy, ex, ey)
+function CMD.find_march_path(_, user_id, sx, sy, ex, ey)
+	return MAP_MGR.find_march_path(user_id, sx, sy, ex, ey)
 end
 
 function CMD.set_user_alliance(_, user_id, alliance_id)
@@ -64,15 +64,19 @@ function CMD.kill_monster(_, entity_id)
 end
 
 function CMD.res_land_info(_, entity_id)
-	return AOI_MGR.res_land_info(entity_id)
+	return LAND_MGR.info(entity_id)
+end
+
+function CMD.land_connected(_, user_id, x, y)
+	return LAND_MGR.connected(user_id, x, y)
 end
 
 function CMD.occupy_res_land(_, entity_id, user_id, troop_idx)
-	return AOI_MGR.occupy_res_land(entity_id, user_id, troop_idx)
+	return LAND_MGR.occupy(entity_id, user_id, troop_idx)
 end
 
 function CMD.leave_res_land(_, entity_id, user_id, troop_idx, gathered)
-	return AOI_MGR.leave_res_land(entity_id, user_id, troop_idx, gathered)
+	return LAND_MGR.leave(entity_id, user_id, troop_idx, gathered)
 end
 
 function CMD.aoi_focus(_, user_id, x, y)

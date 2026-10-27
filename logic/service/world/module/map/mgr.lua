@@ -4,8 +4,18 @@ local navigation = require "navigation"
 local MAP_DIR = "../res/map/"
 
 map_obj = nil
-nav_obj = nil
+-- 山河障碍，给每个联盟的寻路图当底图
+terrain_obstacles = nil
+-- 没联盟：别人的主城都是障碍。自己的主城在寻路时临时放开，才能出城和回城
+nav_alone = nil
+-- [alliance_id] = 寻路图。本联盟主城不挡，其它联盟和没联盟的主城都挡
+nav_of_alliance = nav_of_alliance or {}
+-- [user_id] = {x, y}，主城中心。占地 3×3，热更保留
+city_pos = city_pos or {}
 map_revision = nil
+
+local nav_batch = 0
+local dirty_nav = {}
 -- 非空地的格子：cellId -> type * 256 + level。空地和山河不放进来
 cell_pack = {}
 land_by_key = {}
@@ -64,6 +74,7 @@ function init()
 	assert(map_res and map_res.w and map_res.h and map_res.list and map_res.emptyCells, "load mapRes_0 failed")
 	assert(manifest.width == map_res.w and manifest.height == map_res.h, "map size mismatch")
 	local w, h = map_res.w, map_res.h
+	assert(w == CONST.MAP_SIDE and h == CONST.MAP_SIDE, "map side mismatch")
 	map_obj = MAP_BASE.cls_map:New({
 		_width = w,
 		_height = h,
@@ -104,7 +115,9 @@ function init()
 	map_res = nil
 	terrain = nil
 
-	nav_obj = navigation.new(w, h, obstacles)
+	terrain_obstacles = obstacles
+	nav_of_alliance = {}
+	nav_alone = navigation.new(w, h, terrain_obstacles)
 	obstacles = nil
 	load_used_birth()
 	collectgarbage("collect")
@@ -171,14 +184,170 @@ function relocate_birth(old_x, old_y, x, y)
 	return map_obj:relocate_birth(idx_of_pos(old_x, old_y), idx_of_pos(x, y))
 end
 
+local function owner_alliance(user_id)
+	local alliance_id = ENCOUNTER_MGR.alliance_of[user_id]
+	if alliance_id and alliance_id > 0 then
+		return alliance_id
+	end
+end
+
+local function mark_nav(nav)
+	dirty_nav[nav] = true
+end
+
+local function flush_nav()
+	if nav_batch > 0 then
+		return
+	end
+	for nav in pairs(dirty_nav) do
+		nav:update_areas()
+		dirty_nav[nav] = nil
+	end
+end
+
+-- 起服时主城是一批放进来的，分区只在整批结束时重算一次
+function begin_nav_batch()
+	nav_batch = nav_batch + 1
+end
+
+function end_nav_batch()
+	if nav_batch > 0 then
+		nav_batch = nav_batch - 1
+	end
+	flush_nav()
+end
+
+-- 主城以出生点为中心，半径 1，共 3×3。山河格子本来就挡，不再重复写
+local function each_city_cell(pos, fn)
+	local w, h = map_obj:get_width(), map_obj:get_height()
+	for dy = -1, 1 do
+		for dx = -1, 1 do
+			local x, y = pos.x + dx, pos.y + dy
+			if x >= 0 and y >= 0 and x < w and y < h and not map_obj:is_block(idx_of_pos(x, y)) then
+				fn(x, y)
+			end
+		end
+	end
+end
+
+-- alliance_id 为空表示没联盟的那张图：任何主城都挡。否则只有不是这个联盟的主城才挡
+local function cell_blocked(alliance_id, x, y)
+	for uid, pos in pairs(city_pos) do
+		if math.abs(pos.x - x) <= 1 and math.abs(pos.y - y) <= 1 then
+			if not alliance_id or owner_alliance(uid) ~= alliance_id then
+				return true
+			end
+		end
+	end
+end
+
+local function sync_footprint(nav, pos, alliance_id)
+	each_city_cell(pos, function(x, y)
+		local cell = {x = x, y = y}
+		if cell_blocked(alliance_id, x, y) then
+			nav:set_obstacle(cell)
+		else
+			nav:unset_obstacle(cell)
+		end
+	end)
+	mark_nav(nav)
+end
+
+-- 本联盟的主城九格都不挡。其它联盟、没联盟的主城九格都挡
+local function build_alliance_nav(alliance_id)
+	local nav = navigation.new(map_obj:get_width(), map_obj:get_height(), terrain_obstacles)
+	for _, pos in pairs(city_pos) do
+		each_city_cell(pos, function(x, y)
+			if cell_blocked(alliance_id, x, y) then
+				nav:set_obstacle({x = x, y = y})
+			end
+		end)
+	end
+	nav:update_areas()
+	nav_of_alliance[alliance_id] = nav
+	return nav
+end
+
+-- 这一格落在谁的主城 3×3 里
+function city_of(x, y)
+	x, y = math.floor(x), math.floor(y)
+	for user_id, pos in pairs(city_pos) do
+		if math.abs(x - pos.x) <= 1 and math.abs(y - pos.y) <= 1 then
+			return user_id
+		end
+	end
+end
+
+-- 主城落点或迁城
+function set_city(user_id, x, y)
+	if not nav_alone then
+		return
+	end
+	x, y = math.floor(x), math.floor(y)
+	local old = city_pos[user_id]
+	if old and old.x == x and old.y == y then
+		return
+	end
+	local pos = {x = x, y = y}
+	city_pos[user_id] = pos
+	local function sync(nav, alliance_id)
+		if old then
+			sync_footprint(nav, old, alliance_id)
+		end
+		sync_footprint(nav, pos, alliance_id)
+	end
+	sync(nav_alone, nil)
+	for id, nav in pairs(nav_of_alliance) do
+		sync(nav, id)
+	end
+	flush_nav()
+end
+
+-- 加入联盟后，自己的九格不再挡本联盟。离开后，九格重新挡原来的联盟
+function on_user_alliance(user_id, old_id, new_id)
+	local pos = city_pos[user_id]
+	if not pos then
+		return
+	end
+	if old_id and old_id > 0 and old_id ~= new_id then
+		local nav = nav_of_alliance[old_id]
+		if nav then
+			sync_footprint(nav, pos, old_id)
+		end
+	end
+	if new_id and new_id > 0 and new_id ~= old_id then
+		local nav = nav_of_alliance[new_id]
+		if nav then
+			sync_footprint(nav, pos, new_id)
+		end
+	end
+	flush_nav()
+end
+
 -- 行军拐点（JPS + 平滑），含起点和终点。不可达返回 nil
-function find_march_path(sx, sy, ex, ey)
+-- 有联盟：本联盟主城可过，其它主城是障碍。没联盟：除了自己的主城，别人的主城都是障碍
+function find_march_path(user_id, sx, sy, ex, ey)
 	local w, h = map_obj:get_width(), map_obj:get_height()
 	if ex < 0 or ey < 0 or ex >= w or ey >= h then
 		return
 	end
-	local path = nav_obj:find_path({x = sx, y = sy}, {x = ex, y = ey})
-	if #path < 2 then
+	local alliance_id = owner_alliance(user_id)
+	local nav
+	local ignore
+	if alliance_id then
+		nav = nav_of_alliance[alliance_id] or build_alliance_nav(alliance_id)
+	else
+		nav = nav_alone
+		local mine = city_pos[user_id]
+		if mine then
+			ignore = {}
+			each_city_cell(mine, function(x, y)
+				ignore[#ignore + 1] = {x = x, y = y}
+			end)
+		end
+	end
+	local path = nav:find_path({x = sx, y = sy}, {x = ex, y = ey}, nil, ignore)
+	if not path or #path < 2 then
 		return
 	end
 	local ret = {}

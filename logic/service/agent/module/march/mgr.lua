@@ -9,12 +9,11 @@ function world_call(cmd, ...)
 end
 
 -- 离开资源地时结算采集：按部队记的采集时间算，世界服务再按剩余储量截一下
--- 世界服务重启过占领信息没了，就按部队自己算的给
 local function leave_gather(user, troop)
 	local user_id = user:get_user_id()
 	local entity_id = troop:get_target_id()
-	local land_id = CONST.res_land_id_of_entity(entity_id)
-	local conf = DATA_COMMON.get_res_land_conf(land_id)
+	local info = world_call("res_land_info", entity_id)
+	local conf = info and DATA_COMMON.get_res_land_conf(info.cfg_id)
 	if not conf then
 		return
 	end
@@ -25,7 +24,7 @@ local function leave_gather(user, troop)
 		local reward_type = conf.OutputItem == CONST.RES_TYPE_STONE and CONST.REWARD_TYPE_RES or CONST.REWARD_TYPE_ITEM
 		REWARD_MGR.reward_user_and_show(user_id, {
 			GLOBAL_FUNC.gen_reward_info(reward_type, conf.OutputItem, gathered),
-		}, {CONST.FLOW_REASON.GATHER, land_id})
+		}, {CONST.FLOW_REASON.GATHER, info.cfg_id})
 	end
 end
 
@@ -44,12 +43,15 @@ local function begin_march(user, troop, target_type, target_id, ex, ey, ox, oy)
 			sx, sy = troop:calc_pos(now)
 		end
 	end
-	local path = world_call("find_march_path", sx, sy, ex, ey)
+	local path = world_call("find_march_path", user:get_user_id(), sx, sy, ex, ey)
 	if not path then
 		return false
 	end
 	if troop:is_gathering() then
 		leave_gather(user, troop)
+	elseif troop:get_march_state() == CONST.MARCH_STATE.ARRIVED
+		and troop:get_target_type() == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
+		world_call("leave_res_land", troop:get_target_id(), user:get_user_id(), troop:get_troop_idx(), 0)
 	end
 	local cost = MARCH_PATH.march_seconds(path, DATA_COMMON.get_march_speed())
 	troop:set_march({
@@ -106,10 +108,10 @@ function on_arrive(user_id, troop_idx, end_time)
 	end
 	if troop:get_target_type() == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
 		troop:set_arrived()
-		local gather_end = BATTLE_MGR.occupy_res_land(user, troop)
+		local gather_end, held = BATTLE_MGR.occupy_res_land(user, troop)
 		if gather_end then
 			troop:set_gather(TIME.os_bj_sec(), gather_end)
-		elseif not begin_return(user, troop) then
+		elseif not held and not begin_return(user, troop) then
 			return
 		end
 		if fd then
@@ -193,6 +195,16 @@ function on_user_login(user_id)
 					for_caller.s2c_sync_march(fd, {marchInfo = troop:get_march_pto()})
 				end
 			end
+		elseif state == CONST.MARCH_STATE.ARRIVED and troop:get_target_type() == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
+			local x, y = troop:get_end_pos()
+			if still_occupying(user_id, troop) and x ~= nil then
+				world_call("park_troop", user_id, troop:get_troop_idx(), x, y)
+			elseif begin_return(user, troop) then
+				local fd = user:get_fd()
+				if fd then
+					for_caller.s2c_sync_march(fd, {marchInfo = troop:get_march_pto()})
+				end
+			end
 		elseif state == CONST.MARCH_STATE.ARRIVED then
 			troop:clear_march()
 			world_call("hide_troop", user_id, troop:get_troop_idx())
@@ -210,10 +222,7 @@ local function on_march(fd, packet)
 	if not troop or not troop:has_hero() then
 		return
 	end
-	if troop:get_march_state() == CONST.MARCH_STATE.MOVING then
-		USER_MGR.tell_me(user_id, "部队正在行军")
-		return
-	end
+	local was_moving = troop:get_march_state() == CONST.MARCH_STATE.MOVING
 	local ex, ey, target_id
 	if packet.targetType == DATA_COMMON.TARGET_TYPE.ATTACK_MONSTER then
 		local pos = world_call("monster_pos", packet.targetId)
@@ -224,17 +233,40 @@ local function on_march(fd, packet)
 		ex, ey = pos.x, pos.y
 		target_id = packet.targetId
 	elseif packet.targetType == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
-		local info = world_call("res_land_info", packet.targetId)
-		if not info then
+		local x = CONST.res_land_xy(packet.targetId)
+		if x == nil then
 			USER_MGR.tell_me(user_id, "目标不存在")
 			return
 		end
-		if not SYSTEM_OPEN.is_cond_ok(user, DATA_COMMON.get_res_land_conf(info.cfg_id).OpenCond) then
+		local info = world_call("res_land_info", packet.targetId)
+		if not info then
+			USER_MGR.tell_me(user_id, "此处不能占领")
+			return
+		end
+		if info.covered then
+			USER_MGR.tell_me(user_id, "城池范围内不能占领")
+			return
+		end
+		local empty = info.cfg_id == 0
+		local conf = not empty and DATA_COMMON.get_res_land_conf(info.cfg_id)
+		if not empty and (not conf or not SYSTEM_OPEN.is_cond_ok(user, conf.OpenCond)) then
 			USER_MGR.tell_me(user_id, "等级不足")
 			return
 		end
-		if info.owner_id ~= 0 then
-			USER_MGR.tell_me(user_id, "资源地已被占领")
+		if info.owner_id ~= 0 and info.owner_id ~= user_id then
+			USER_MGR.tell_me(user_id, empty and "这块空地已被占领" or "资源地已被占领")
+			return
+		end
+		if info.owner_id == 0 and not world_call("land_connected", user_id, info.x, info.y) then
+			USER_MGR.tell_me(user_id, "领地不相连")
+			return
+		end
+		if not empty and info.owner_id == user_id and info.remain <= 0 then
+			USER_MGR.tell_me(user_id, "资源尚未恢复")
+			return
+		end
+		if info.troop_idx ~= 0 and info.troop_idx ~= troop:get_troop_idx() then
+			USER_MGR.tell_me(user_id, empty and "已有部队驻守" or "已有部队在采集")
 			return
 		end
 		ex, ey = info.x, info.y
@@ -258,7 +290,7 @@ local function on_march(fd, packet)
 		return
 	end
 	for_caller.s2c_march(fd, {marchInfo = troop:get_march_pto()})
-	if packet.targetType ~= DATA_COMMON.TARGET_TYPE.RETURN_CITY then
+	if not was_moving and packet.targetType ~= DATA_COMMON.TARGET_TYPE.RETURN_CITY then
 		EVENT.dispatch(CONST.EVENT.ON_MARCH, user_id, 1)
 	end
 end

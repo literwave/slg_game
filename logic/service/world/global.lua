@@ -11,6 +11,7 @@ CALL_OUT	= Import("../common/call_out.lua")
 EVENT		= Import("../common/event.lua")
 
 MONGO_SLAVE	= Import("../logic/base/mongo_slave.lua")
+ORM		= Import("../orm/init.lua")
 USER_MGR	= Import("../logic/service/world/module/user/mgr.lua")
 
 QTREE		= Import("../logic/service/world/module/qtree/base.lua")
@@ -21,4 +22,5 @@ SCENE_MGR	= Import("../logic/service/world/module/scene/mgr.lua")
 ENTITY_MGR	= Import("../logic/service/world/module/entity/mgr.lua")
 ENCOUNTER_MGR	= Import("../logic/service/world/module/encounter/mgr.lua")
 AOI_MGR		= Import("../logic/service/world/module/aoi/mgr.lua")
+LAND_MGR	= Import("../logic/service/world/module/land/mgr.lua")
 
