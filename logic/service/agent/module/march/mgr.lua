@@ -53,7 +53,7 @@ local function begin_march(user, troop, target_type, target_id, ex, ey, ox, oy)
 		and troop:get_target_type() == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
 		world_call("leave_res_land", troop:get_target_id(), user:get_user_id(), troop:get_troop_idx(), 0)
 	end
-	local cost = MARCH_PATH.march_seconds(path, DATA_COMMON.get_march_speed())
+	local cost = MARCH_PATH.march_seconds(path, DATA_COMMON.get_march_speed(target_type))
 	troop:set_march({
 		state = CONST.MARCH_STATE.MOVING,
 		target_type = target_type,

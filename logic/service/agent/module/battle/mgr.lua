@@ -12,10 +12,7 @@ local function troop_side(user, troop)
 	for pos, info in pairs(troop:get_pos_tbl()) do
 		local hero = HERO_MGR.get_hero_by_type(user_id, info._hero_idx)
 		if hero then
-			local skills = {}
-			for skill_id, lv in pairs(hero:get_skill_tbl()) do
-				skills[#skills + 1] = {id = skill_id, lv = lv}
-			end
+			local skills = hero:get_battle_skills()
 			table.sort(skills, function(a, b)
 				return a.id < b.id
 			end)

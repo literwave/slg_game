@@ -239,13 +239,6 @@ function CMD.super(vfd, level)
 	local hero_max = DATA_COMMON.get_hero_max_level()
 	for _, hero in pairs(HERO_MGR.get_hero_tbl_by_user_id(user_id)) do
 		hero:set_level(hero_max)
-		local skill_ids = {}
-		for skill_id in pairs(hero:get_skill_tbl()) do
-			skill_ids[#skill_ids + 1] = skill_id
-		end
-		for _, skill_id in ipairs(skill_ids) do
-			hero:set_skill_lv(skill_id, DATA_COMMON.get_skill_max_level(skill_id))
-		end
 		hero:sync_to_client()
 	end
 
@@ -266,6 +259,7 @@ function CMD.super(vfd, level)
 		reward_list[#reward_list + 1] = GLOBAL_FUNC.gen_reward_info(CONST.REWARD_TYPE_ITEM, item_id, math.max(1, overlap))
 	end
 	REWARD_MGR.reward_user(user_id, reward_list, {CONST.FLOW_REASON.GM})
+	SKILL_MGR.grant_max_all(user_id)
 
 	tell(vfd, string.format("超级号完成：主角 %d 级，武将 %d 级", user:get_level(), hero_max))
 end

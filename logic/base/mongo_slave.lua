@@ -18,6 +18,7 @@ COL = {
 	USER_MAIL = "user_mail_col",
 	SVR_MAIL = "svr_mail_col",
 	LAND = "land_col",
+	USER_SKILL = "user_skill_col",
 }
 
 -- 运行时状态用模块变量，热更时会保留；写成 local 会被重置，丢掉还没发出去的写盘

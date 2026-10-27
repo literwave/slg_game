@@ -171,6 +171,9 @@ function add_item(user_id, item_id, cnt, reason_list)
 	else
 		add_item_cnt(user_id, item_id, cnt, reason_list)
 	end
+	if item_kind == CONST.SKILL_BOOK_KIND and SKILL_MGR then
+		SKILL_MGR.on_item_add(user_id, item_id)
+	end
 end
 
 function get_item_count(user_id, item_id)

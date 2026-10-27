@@ -484,7 +484,7 @@ local function winner_plan(e)
 		return {go_home = true}
 	end
 	local now = TIME.now()
-	local cost = MARCH_PATH.march_seconds(path, DATA_COMMON.get_march_speed())
+	local cost = MARCH_PATH.march_seconds(path, DATA_COMMON.get_march_speed(e.target_type))
 	e.path = path
 	e.start_time = now
 	e.end_time = now + cost
@@ -601,6 +601,7 @@ function start_march(info)
 		cfg_id = 0,
 		user_id = info.user_id,
 		troop_idx = info.troop_idx,
+		target_type = info.target_type,
 		moving = true,
 		path = info.path,
 		start_time = info.start_time,

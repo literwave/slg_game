@@ -39,13 +39,48 @@ function cls_hero:set_level(level)
 	EVENT.dispatch(CONST.EVENT.ON_HERO_LEVEL, self:get_user_id(), self:get_hero_type())
 end
 
+function cls_hero:get_skill_slot(pos)
+	return self._data._skill_slot[pos]
+end
+
+function cls_hero:set_skill_slot(pos, skill_id)
+	self._data._skill_slot[pos] = skill_id
+end
+
+-- 自带技不进协议，等级固定 1。已装备的可学战法按槽位带上技能包里的等级
+function cls_hero:get_battle_skills()
+	local list = {}
+	local conf = DATA_COMMON.get_hero_info_by_type(self:get_hero_type())
+	local innate = conf and conf.SkillId
+	if innate and innate > 0 then
+		list[#list + 1] = {id = innate, lv = 1}
+	end
+	local user_id = self:get_user_id()
+	for pos = 0, CONST.SKILL_SLOT_COUNT - 1 do
+		local skill_id = self:get_skill_slot(pos)
+		if skill_id and skill_id > 0 and skill_id ~= innate then
+			local lv = SKILL_MGR.get_level(user_id, skill_id)
+			if lv < 1 then
+				lv = 1
+			end
+			list[#list + 1] = {id = skill_id, lv = lv}
+		end
+	end
+	return list
+end
+
 function cls_hero:get_hero_pto_base_info()
 	local skill_list = {}
-	for skill_id, skill_lv in pairs(self._data._skill_tbl) do
-		table.insert(skill_list, {
-			k = skill_id,
-			v = skill_lv,
-		})
+	local user_id = self:get_user_id()
+	for pos = 0, CONST.SKILL_SLOT_COUNT - 1 do
+		local skill_id = self:get_skill_slot(pos)
+		if skill_id and skill_id > 0 then
+			local lv = SKILL_MGR.get_level(user_id, skill_id)
+			skill_list[#skill_list + 1] = {
+				k = skill_id,
+				v = lv > 0 and lv or 1,
+			}
+		end
 	end
 	return {
 		heroId = self._data._hero_type,

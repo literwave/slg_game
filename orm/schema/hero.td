@@ -13,6 +13,7 @@ hero_data {
     _star number
     _equip_tbl equip_map
     _skill_tbl skill_map
+    _skill_slot skill_map
     _new_tag boolean
     _state number
 }

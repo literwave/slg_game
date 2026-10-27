@@ -53,18 +53,13 @@ function add_hero(user_id, hero_type, reason_list)
 		return exist
 	end
 	try_init_user_hero_data(user_id)
-	local skill_tbl = {}
-	local skill_id = hero_info.SkillId
-	if skill_id then
-		skill_tbl[skill_id] = 1
-	end
 	local oci = {
 		_user_id = user_id,
 		_hero_type = hero_type,
 		_new_tag = true,
 		_level = 1,
 		_star = 1,
-		_skill_tbl = skill_tbl,
+		_skill_tbl = {},
 	}
 	local hero = create_hero(oci)
 	hero:sync_to_client()

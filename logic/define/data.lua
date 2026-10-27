@@ -225,9 +225,18 @@ function get_soldier_max()
 	return get_value_by_key(8)
 end
 
--- 每秒走的格子数，可以是小数。Global Id=17 的 value1 是整数，装不下 0.5
-function get_march_speed()
-	return 0.5
+-- 每秒走的格子数，按行军目标取 TargetType.Speed。没配或不是正数时用移动的 0.2
+function get_march_speed(target_type)
+	local conf = DATA_TARGET_TYPE[target_type]
+	local speed = conf and conf.Speed
+	if not speed or speed <= 0 then
+		return 0.2
+	end
+	return speed
+end
+
+function get_item_conf(item_id)
+	return DATA_ITEM[item_id]
 end
 
 function get_main_task_head()
@@ -280,6 +289,10 @@ end
 
 function get_skill_conf(skill_id)
 	return DATA_SKILL[skill_id]
+end
+
+function get_skill_tbl()
+	return DATA_SKILL
 end
 
 function get_hero_max_level()

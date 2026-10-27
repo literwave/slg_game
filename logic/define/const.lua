@@ -76,6 +76,11 @@ FLOW_REASON = {
 -- 迁主城消耗的道具，对应 Item.Id=1001 迁城令
 MOVE_CITY_ITEM = 1001
 
+-- 可学战法槽位数，不含自带技。协议 pos 从 0 起
+SKILL_SLOT_COUNT = 2
+-- Item.Kind=10 技能书
+SKILL_BOOK_KIND = 10
+
 -- 建筑消耗的四种资源，对应 Item.Id。粮草/木材/铁矿/石料
 BUILD_COST_ITEM = {
 	GRAIN = 1,

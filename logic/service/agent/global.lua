@@ -22,6 +22,7 @@ LMDB		= Import("../logic/service/agent/lua_mdb.lua")
 
 CLS_HERO	= Import("../logic/service/agent/module/hero/base.lua")
 HERO_MGR	= Import("../logic/service/agent/module/hero/mgr.lua")
+SKILL_MGR	= Import("../logic/service/agent/module/skill/mgr.lua")
 
 ITEM_MGR	= Import("../logic/service/agent/module/item/mgr.lua")
 
