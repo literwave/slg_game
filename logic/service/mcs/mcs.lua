@@ -65,7 +65,7 @@ function CMD.stop()
 	is_stopping = true
 	local fail_list = {}
 	for _, service_name in ipairs(STOP_SERVICE_LIST) do
-		skynet.error("shutdown step", service_name)
+		LOG._debug("shutdown step", service_name)
 		local ok, err = pcall(skynet.call, service_name, "lua", "shutdown")
 		if not ok then
 			skynet.error("shutdown step failed", service_name, err)
@@ -156,7 +156,7 @@ skynet.start(function()
 	LISTEN_FD = socket.listen("0.0.0.0", skynet.getenv("http_port"))
 	socket.start(LISTEN_FD, function(fd, addr)
 		addr = string.split(addr, ":")[1]
-		skynet.error("mcs op addr", addr)
+		LOG._debug("mcs op addr", addr)
 		if not CAN_OP_ADDR_TBL[addr] then
 			-- 还没 socket.start，socket.close 不生效
 			socket.close_fd(fd)

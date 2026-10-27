@@ -24,7 +24,7 @@ function CMD.get_rank(rank_type, user_id)
 end
 
 skynet.start(function()
-	skynet.error("boot activity success")
+	LOG._debug("boot activity success")
 	dofile "../logic/service/activity/preload.lua"
 	skynet.dispatch("lua", function(session, _, cmd, ...)
 		local f = CMD[cmd]

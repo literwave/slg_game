@@ -23,10 +23,11 @@ local function hero_stats(cfg_id, level)
 		return
 	end
 	local grow = 1 + (level - 1) * CONST.BATTLE_HERO_LV_GROWTH / 100
+	-- Hero：Attack 武力、Hp 谋略、Defense 防御、Speed 速度、Crit 破坏
 	return {
-		attack = (conf.Strength or 0) * grow,
-		intel = (conf.Intelligence or 0) * grow,
-		defense = ((conf.Defense or 0) + (conf.Command or 0)) * grow,
+		attack = (conf.Attack or 0) * grow,
+		intel = (conf.Hp or 0) * grow,
+		defense = (conf.Defense or 0) * grow,
 		speed = conf.Speed or 0,
 		crit = conf.Crit or 0,
 		magic = conf.Class == "法师",
@@ -40,7 +41,7 @@ local function monster_stats(cfg_id)
 	end
 	return {
 		attack = conf.Attack or 0,
-		intel = conf.Attack or 0,
+		intel = conf.Hp or 0,
 		defense = conf.Defense or 0,
 		speed = conf.Speed or 0,
 		crit = conf.Crit or 0,

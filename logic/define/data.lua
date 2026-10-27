@@ -112,6 +112,16 @@ function get_value_by_key(key)
 	return DATA_GLOBAL[key].value1 or DATA_GLOBAL[key].value2 or DATA_GLOBAL[key].value3
 end
 
+-- 击败守卫后的占领倒计时，Global.Id=19，秒。没配时用 30
+function get_occupy_seconds()
+	local conf = DATA_GLOBAL[19]
+	local sec = conf and conf.value1
+	if not sec or sec < 1 then
+		return 30
+	end
+	return sec
+end
+
 function get_user_level_up_exp()
 	return get_value_by_key(5)
 end

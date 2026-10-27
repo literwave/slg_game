@@ -121,9 +121,8 @@ function init()
 	obstacles = nil
 	load_used_birth()
 	collectgarbage("collect")
-	skynet.error(string.format(
-		"world map init %d %d rev %s block %d birth %d land %d mem %.0fKb",
-		w, h, map_revision, block_cnt, birth_cnt, land_cnt, collectgarbage("count")))
+	LOG._debug("world map init %d %d rev %s block %d birth %d land %d mem %.0fKb",
+		w, h, map_revision, block_cnt, birth_cnt, land_cnt, collectgarbage("count"))
 end
 
 function get_map()

@@ -61,11 +61,11 @@ local function kick_old_conn(user_id, new_fd)
 	if old_gate_srv then
 		skynet.send(old_gate_srv, "lua", "kick", old_fd)
 	end
-	skynet.error("relogin kick old conn", user_id, old_fd, new_fd)
+	LOG._debug("relogin kick old conn", user_id, old_fd, new_fd)
 end
 
 local function do_login(gate_srv, fd, user_id, addr, account, server_id, token)
-	skynet.error("login step 3-agent", fd, user_id, addr, account)
+	LOG._debug("login step 3-agent", fd, user_id, addr, account)
 	kick_old_conn(user_id, fd)
 	local user = false
 	local is_first_login = false
@@ -140,6 +140,12 @@ end
 function CMD.gather_full(user_id, troop_idx, end_time)
 	get_user_queue(user_id)(function()
 		MARCH_MGR.on_gather_full(user_id, troop_idx, end_time)
+	end)
+end
+
+function CMD.occupy_done(user_id, troop_idx, gather_end)
+	get_user_queue(user_id)(function()
+		MARCH_MGR.on_occupy_done(user_id, troop_idx, gather_end)
 	end)
 end
 

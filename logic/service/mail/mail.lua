@@ -54,5 +54,5 @@ skynet.start(function()
 		end
 	end)
 	skynet.register(".mail")
-	skynet.error("boot mail success")
+	LOG._debug("boot mail success")
 end)

@@ -24,7 +24,7 @@ function RPC_CMD.sub_item_list(id, ret, user_id)
 end
 
 skynet.start(function()
-	skynet.error("boot gameserver success")
+	LOG._debug("boot gameserver success")
 	dofile "../logic/service/gameserver/preload.lua"
 	skynet.dispatch("lua", function (session, _, cmd, ...)
 		local f = CMD[cmd]

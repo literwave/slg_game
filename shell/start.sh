@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Skynet 游戏服务器启动脚本
-#   sh shell/start.sh      后台运行，日志写 log/skynet.log，随后 tail -f。Ctrl+C 只停看日志
+#   sh shell/start.sh      后台运行。进程输出仍写 log/skynet.log。就绪后在终端打启动标志，再 tail 当天的 common_debug 日志。Ctrl+C 只停看日志
 #   sh shell/start.sh -f   前台运行（调试用，ctrl+c 直接杀进程，未落盘数据会丢）
 # 关服用 sh shell/stop.sh
 
@@ -69,11 +69,50 @@ fi
 
 LOG_DIR="$PROJECT_ROOT/log"
 LOG_FILE="$LOG_DIR/skynet.log"
+DEBUG_LOG="$LOG_DIR/common_debug_$(date +%Y%m%d).log"
 mkdir -p "$LOG_DIR"
-touch "$LOG_FILE"
-START_LINE=$(($(wc -l < "$LOG_FILE") + 1))
+touch "$LOG_FILE" "$DEBUG_LOG"
+START_LINE=$(($(wc -l < "$DEBUG_LOG") + 1))
 # 新开会话脱离当前终端，ctrl+c / 关终端的信号到不了 skynet
 setsid nohup "$SKYNET_BIN" "$CONFIG_FILE" >> "$LOG_FILE" 2>&1 < /dev/null &
 PID=$!
 echo "后台启动 pid=$PID，Ctrl+C 只停止看日志。关服: sh shell/stop.sh"
-exec tail -n +"$START_LINE" -f "$LOG_FILE"
+echo "调试日志: $DEBUG_LOG"
+
+read_cfg() {
+	tr -d '\r' < "$PROJECT_ROOT/config/main_node" | sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\{0,1\}\([^\"[:space:]]*\).*/\1/p" | head -n 1
+}
+HTTP_PORT=$(read_cfg http_port)
+HTTP_PORT=${HTTP_PORT:-33023}
+WAIT_SEC=${WAIT_SEC:-90}
+i=0
+while [ "$i" -lt "$WAIT_SEC" ]; do
+	if ! kill -0 "$PID" 2>/dev/null; then
+		echo "错误: 进程已退出，看 $LOG_FILE" >&2
+		exit 1
+	fi
+	STATUS=$(curl -sS --max-time 1 "http://127.0.0.1:$HTTP_PORT/?method_tag=3" 2>/dev/null || true)
+	if [ "$STATUS" = "ready" ]; then
+		break
+	fi
+	i=$((i + 1))
+	sleep 1
+done
+if [ "$STATUS" != "ready" ]; then
+	echo "错误: ${WAIT_SEC}s 内没有就绪，看 $LOG_FILE" >&2
+	exit 1
+fi
+
+# debug 大约每秒落盘，等一次再截断，避免启动日志落到标志后面
+sleep 1
+END_LINE=$(wc -l < "$DEBUG_LOG")
+if [ "$END_LINE" -ge "$START_LINE" ]; then
+	tail -n +"$START_LINE" "$DEBUG_LOG" | head -n $((END_LINE - START_LINE + 1))
+fi
+echo "***       *******   *******   *******   *******     ***     ***       ***     ***   ***    ********"
+echo "***         ***       ***     ***       ***   **    ***     ***      *****    ***   ***    ***     "
+echo "***         ***       ***     *******   ***    **   ***     ***     *** ***   ***   ***    ******  "
+echo "***         ***       ***     ***       *******     ***  *  ***    *********  ***   ***    ***     "
+echo "***         ***       ***     ***       ***   **    *** *** ***   ***     ***  ***  ***    ***     "
+echo "*******   *******     ***     *******   ***    **    ***   ***   ****     ****   ***       ********"
+exec tail -n +$((END_LINE + 1)) -F "$DEBUG_LOG"

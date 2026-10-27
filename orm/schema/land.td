@@ -8,4 +8,6 @@ land_data {
     _troop_idx number
     _gather_end number
     _refill_at number
+    _pending_owner number
+    _occupy_end number
 }

@@ -241,12 +241,12 @@ function occupy_res_land(user, troop)
 			USER_MGR.tell_me(user_id, "已有部队驻守")
 			return
 		end
-		local _, held = MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
-		if not held then
+		local gather_end, held, occupy_end = MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
+		if not held and not occupy_end then
 			USER_MGR.tell_me(user_id, "无法占领")
 			return
 		end
-		return nil, true
+		return gather_end, held, occupy_end
 	end
 	if info.owner_id == user_id then
 		if info.remain <= 0 then
@@ -271,7 +271,7 @@ function occupy_res_land(user, troop)
 	if not group then
 		return
 	end
-	local end_time
+	local gather_end, held, occupy_end
 	fight_group(user, troop, {
 		entity_id = entity_id,
 		group = group,
@@ -281,13 +281,13 @@ function occupy_res_land(user, troop)
 		x = info.x,
 		y = info.y,
 		on_win = function()
-			end_time = MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
-			if end_time then
+			gather_end, held, occupy_end = MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
+			if gather_end or occupy_end then
 				return conf.Reward
 			end
 		end,
 	})
-	return end_time
+	return gather_end, held, occupy_end
 end
 
 -- 结算在到达时已经做完，跳过只是告诉客户端不用播了

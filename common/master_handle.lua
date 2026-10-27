@@ -22,7 +22,7 @@ function start_login()
 	for _ = 1, slave_cnt do
 	    table.insert(SLAVE_ADDRESS, skynet.newservice(SERVICE_NAME))
 	end
-	skynet.error(string.format("login listen on %s:%d backlog=%d", address, login_port, listen_backlog))
+	LOG._debug("login listen on %s:%d backlog=%d", address, login_port, listen_backlog)
 	local fd = socket.listen(address or "0.0.0.0", login_port, listen_backlog)
 	local balance = 1
 	socket.start(fd, function (fd, addr)

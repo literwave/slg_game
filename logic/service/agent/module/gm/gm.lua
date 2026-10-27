@@ -294,7 +294,7 @@ local function on_gm_command(fd, packet)
 		USER_MGR.tell_me(user_id, "没有这个指令")
 		return
 	end
-	skynet.error(string.format("gmcmd:%s %s", user_id, cmd))
+	LOG._debug("gmcmd:%s %s", user_id, cmd)
 	local args = {}
 	if func_name == "code" then
 		table.insert(args, string.match(cmd, "^%S+%s+(.*)$"))

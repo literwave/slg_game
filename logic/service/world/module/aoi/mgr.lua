@@ -88,6 +88,9 @@ local function entity_pto(e)
 		pto.path = MARCH_PATH.to_pto(e.path)
 		pto.startTime = e.start_time
 		pto.endTime = e.end_time
+	elseif e.occupy_end and e.occupy_end > 0 then
+		pto.startTime = e.occupy_start
+		pto.endTime = e.occupy_end
 	end
 	if e.entity_type == DATA_COMMON.ENTITY_TYPE.CITY then
 		pto.name = e.name
@@ -380,7 +383,18 @@ function upsert_land(info)
 	e.y = info.y
 	e.troop_idx = info.troop_idx
 	e.remain = info.remain
+	e.occupy_start = info.occupy_start or 0
+	e.occupy_end = info.occupy_end or 0
 	refresh_entity(e)
+end
+
+function remove_land(entity_id)
+	local e = entities[entity_id]
+	if not e or e.entity_type ~= DATA_COMMON.ENTITY_TYPE.RES_LAND then
+		return
+	end
+	entities[entity_id] = nil
+	leave_all(e)
 end
 
 function upsert_city(user_id, x, y, info)

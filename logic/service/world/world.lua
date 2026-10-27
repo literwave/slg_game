@@ -84,7 +84,7 @@ function CMD.aoi_focus(_, user_id, x, y)
 end
 
 skynet.start(function()
-	skynet.error("boot world success")
+	LOG._debug("boot world success")
 	dofile "../logic/service/world/preload.lua"
 	skynet.dispatch("lua", function (session, address, cmd, ...)
 		local f = CMD[cmd]

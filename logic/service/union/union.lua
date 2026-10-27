@@ -45,5 +45,5 @@ skynet.start(function()
 		end
 	end)
 	skynet.register(".union")
-	skynet.error("boot union success")
+	LOG._debug("boot union success")
 end)

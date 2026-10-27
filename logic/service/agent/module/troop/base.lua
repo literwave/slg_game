@@ -131,6 +131,15 @@ function cls_troop:set_arrived()
 	self:set_troop_state(DATA_COMMON.TROOP_STATE.STAY)
 end
 
+-- 打赢后停在原地等占领倒计时。归属要到点才写入，这段时间部队状态仍是停留
+function cls_troop:set_occupy_wait(start_time, end_time)
+	local march = self._data._march
+	march._state = CONST.MARCH_STATE.ARRIVED
+	march._start_time = start_time
+	march._end_time = end_time
+	self:set_troop_state(DATA_COMMON.TROOP_STATE.STAY)
+end
+
 -- 占领资源地后停在原地采集，start/end 改记采集开始和采满的时间
 function cls_troop:set_gather(start_time, end_time)
 	local march = self._data._march

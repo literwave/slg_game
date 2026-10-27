@@ -28,7 +28,7 @@ function sdk_login_ok(login_info)
 	local user_tbl = get_user_tbl(account)
 	local user_id = next(user_tbl)
 	if not user_id then
-		skynet.error("user new create")
+		LOG._debug("user new create")
 		user_id = fetch_user_id()
 		login_info.userId = user_id
 		create_account(account, user_id)

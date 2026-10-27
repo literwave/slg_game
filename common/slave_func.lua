@@ -56,12 +56,12 @@ end
 local handle = {}
 
 function handle.connect(id)
-	skynet.error("logind ws connect from: " .. tostring(id))
+	LOG._debug("logind ws connect from: %s", tostring(id))
 end
 
 function handle.handshake(id, header, url)
 	local addr = websocket.addrinfo(id)
-	skynet.error("logind ws handshake from: " .. tostring(id), "url", url, "addr:", addr)
+	LOG._debug("logind ws handshake from: %s url %s addr: %s", tostring(id), url, addr)
 end
 
 function handle.message(id, msg)
@@ -86,7 +86,7 @@ function handle.message(id, msg)
 		crypt.base64encode(tostring(login_info.serverId)),
 		crypt.base64encode(login_info.passwd)
 	)
-	skynet.error("loginInfo: ", login_info.userId)
+	LOG._debug("loginInfo:", login_info.userId)
 	local token_tbl = {
 		userId = login_info.userId,
 		passwd = login_info.passwd,
@@ -105,12 +105,12 @@ function handle.message(id, msg)
 		userId = login_info.userId,
 	}
 	websocket.write(id, encode_login_pack(pack), "binary")
-	skynet.error("login succ", login_info.userId, token)
+	LOG._debug("login succ", login_info.userId, token)
 	websocket.close(id)
 end
 
 function handle.close(id, code, reason)
-	skynet.error("logind ws close from:", id, code, reason)
+	LOG._debug("logind ws close from:", id, code, reason)
 end
 
 function handle.error(id)
@@ -119,7 +119,7 @@ function handle.error(id)
 end
 
 function CMD.auth(fd, addr)
-	skynet.error("login step 1-auth", fd, addr)
+	LOG._debug("login step 1-auth", fd, addr)
 	skynet.fork(function()
 		socketdriver.nodelay(fd)
 		local ok, err = websocket.accept(fd, handle, PROTOCOL, addr)

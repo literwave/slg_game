@@ -30,7 +30,7 @@ function CMD.open(conf)
 	end
 	local address = conf.address or "0.0.0.0"
 	LISTEN_FD = socket.listen(address, conf.port, LISTEN_BACKLOG)
-	skynet.error(string.format("gate listen on %s:%s, worker=%d, agent=%d, backlog=%d", address, conf.port, GATE_CNT, AGENT_CNT, LISTEN_BACKLOG))
+	LOG._debug("gate listen on %s:%s, worker=%d, agent=%d, backlog=%d", address, conf.port, GATE_CNT, AGENT_CNT, LISTEN_BACKLOG)
 	socket.start(LISTEN_FD, function(fd, addr)
 		if is_closing then
 			socket.close_fd(fd)

@@ -90,7 +90,7 @@ local function first_login(packet, fd)
 		return
 	end
 	websocket.write(fd, send_packet, "binary")
-	skynet.error("login ok", user_id, fd)
+	LOG._debug("login ok", user_id, fd)
 end
 
 function handle.connect(id)

@@ -108,9 +108,11 @@ function on_arrive(user_id, troop_idx, end_time)
 	end
 	if troop:get_target_type() == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
 		troop:set_arrived()
-		local gather_end, held = BATTLE_MGR.occupy_res_land(user, troop)
+		local gather_end, held, occupy_end = BATTLE_MGR.occupy_res_land(user, troop)
 		if gather_end then
 			troop:set_gather(TIME.os_bj_sec(), gather_end)
+		elseif occupy_end then
+			troop:set_occupy_wait(occupy_end - DATA_COMMON.get_occupy_seconds(), occupy_end)
 		elseif not held and not begin_return(user, troop) then
 			return
 		end
@@ -136,6 +138,30 @@ function on_arrive(user_id, troop_idx, end_time)
 end
 
 -- 资源地采满，世界服务通知回城
+function on_occupy_done(user_id, troop_idx, gather_end)
+	local user = USER_MGR.try_init_user(user_id)
+	local troop = TROOP_MGR.get_troop(user_id, troop_idx)
+	if not user or not troop or troop:get_march_state() ~= CONST.MARCH_STATE.ARRIVED then
+		return
+	end
+	if troop:get_target_type() ~= DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
+		return
+	end
+	if not still_occupying(user_id, troop) then
+		return
+	end
+	local now = TIME.os_bj_sec()
+	if gather_end and gather_end > now then
+		troop:set_gather(now, gather_end)
+	else
+		troop:set_occupy_wait(now, now)
+	end
+	local fd = user:get_fd()
+	if fd then
+		for_caller.s2c_sync_march(fd, {marchInfo = troop:get_march_pto()})
+	end
+end
+
 function on_gather_full(user_id, troop_idx, end_time)
 	local troop = TROOP_MGR.get_troop(user_id, troop_idx)
 	if not troop or not troop:is_gathering() or troop:get_end_time() ~= end_time then
@@ -148,10 +174,22 @@ function on_gather_full(user_id, troop_idx, end_time)
 	end
 end
 
--- 世界服务里还是这支部队占着就继续采
-local function still_occupying(user_id, troop)
+-- 世界服务里还是这支部队占着就继续采。倒计时没结束时归属还没写上，也要留在原地
+local function land_hold(user_id, troop)
 	local info = world_call("res_land_info", troop:get_target_id())
-	return info and info.owner_id == user_id and info.troop_idx == troop:get_troop_idx()
+	if not info or info.troop_idx ~= troop:get_troop_idx() then
+		return
+	end
+	if info.owner_id == user_id then
+		return "owned"
+	end
+	if info.pending_owner == user_id and info.occupy_end > TIME.os_bj_sec() then
+		return "wait"
+	end
+end
+
+local function still_occupying(user_id, troop)
+	return land_hold(user_id, troop) == "owned"
 end
 
 function on_aoi_push(fd, pack)
@@ -197,7 +235,7 @@ function on_user_login(user_id)
 			end
 		elseif state == CONST.MARCH_STATE.ARRIVED and troop:get_target_type() == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
 			local x, y = troop:get_end_pos()
-			if still_occupying(user_id, troop) and x ~= nil then
+			if land_hold(user_id, troop) and x ~= nil then
 				world_call("park_troop", user_id, troop:get_troop_idx(), x, y)
 			elseif begin_return(user, troop) then
 				local fd = user:get_fd()
@@ -266,7 +304,8 @@ local function on_march(fd, packet)
 			return
 		end
 		if info.troop_idx ~= 0 and info.troop_idx ~= troop:get_troop_idx() then
-			USER_MGR.tell_me(user_id, empty and "已有部队驻守" or "已有部队在采集")
+			local occupying = info.occupy_end and info.occupy_end > TIME.os_bj_sec()
+			USER_MGR.tell_me(user_id, occupying and "已有部队在占领" or (empty and "已有部队驻守" or "已有部队在采集"))
 			return
 		end
 		ex, ey = info.x, info.y

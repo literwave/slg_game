@@ -35,12 +35,12 @@ function disconnect(fd, user_id)
 end
 
 function on_user_login(user_id, fd, gate_srv, is_first_login)
-	skynet.error("activity login success", user_id, gate_srv, is_first_login)
+	LOG._debug("activity login success", user_id, gate_srv, is_first_login)
 	ref_login(user_id, fd, gate_srv)
 end
 
 function on_user_logout(user_id, fd)
-	skynet.error("activity logout success", user_id, fd)
+	LOG._debug("activity logout success", user_id, fd)
 	disconnect(fd, user_id)
 end
 

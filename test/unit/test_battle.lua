@@ -2,8 +2,10 @@
 
 local function load_conf(name)
 	local ret = {}
-	for _, row in ipairs(dofile("game_common/server/res/" .. name .. ".lua")) do
-		ret[row.Id] = row
+	for _, row in pairs(dofile("game_common/server/res/" .. name .. ".lua")) do
+		if type(row) == "table" and row.Id then
+			ret[row.Id] = row
+		end
 	end
 	return ret
 end

@@ -58,12 +58,12 @@ function kick_user(fd, user_id)
 end
 
 function on_user_login(user_id, fd, gate_srv, is_first_login)
-	skynet.error("gameserver login success", user_id, gate_srv, is_first_login)
+	LOG._debug("gameserver login success", user_id, gate_srv, is_first_login)
 	ref_login(user_id, fd, gate_srv)
 end
 
 function on_user_logout(user_id, fd)
-	skynet.error("gameserver logout success", user_id, fd)
+	LOG._debug("gameserver logout success", user_id, fd)
 	disconnect(fd, user_id)
 end
 

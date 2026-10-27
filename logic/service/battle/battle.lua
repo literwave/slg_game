@@ -33,5 +33,5 @@ skynet.start(function()
 		end
 	end)
 	skynet.register(".battle" .. idx)
-	skynet.error("boot battle success", idx)
+	LOG._debug("boot battle success", idx)
 end)

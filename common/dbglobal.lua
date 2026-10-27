@@ -39,7 +39,7 @@ function modify_actor_table()
 	 if result["badresult"] then
 	    local tem_list = {}
 	    for i = #ACTOR_VARIES ,1 , -1 do
-	        skynet.error(ACTOR_VARIES[i])
+	        LOG._debug(ACTOR_VARIES[i])
 	        local column, column_type = tunpack(ACTOR_VARIES[i])
 	        table.insert(tem_list, column .. " "..column_type)
 	    end

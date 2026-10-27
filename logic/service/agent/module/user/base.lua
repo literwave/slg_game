@@ -325,13 +325,13 @@ function cls_user:sync_city_pos()
 	for_caller.s2c_sync_city_pos(fd, {cityPos = self:get_city_pos_pto()})
 end
 
--- 战力没有单独配置，用英雄四维乘等级相加，给任务和冲榜一个可比的数
+-- 战力没有单独配置，用英雄五维乘等级相加，给任务和冲榜一个可比的数
 function cls_user:get_power()
 	local sum = 0
 	for _, hero in pairs(HERO_MGR.get_hero_tbl_by_user_id(self:get_user_id())) do
 		local info = DATA_COMMON.get_hero_info_by_type(hero:get_hero_type())
 		if info then
-			local base = (info.Strength or 0) + (info.Intelligence or 0) + (info.Command or 0) + (info.Charm or 0)
+			local base = (info.Attack or 0) + (info.Hp or 0) + (info.Defense or 0) + (info.Speed or 0) + (info.Crit or 0)
 			sum = sum + base * hero:get_level()
 		end
 	end

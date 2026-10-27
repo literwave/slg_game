@@ -12,7 +12,7 @@ local LEVEL_TBL = {
 }
 
 local min_level = LEVEL_TBL[skynet.getenv("log_level") or "debug"] or LEVEL_TBL.debug
-local SERVICE_INFO = string.format("%s:%08x", SERVICE_NAME, skynet.self())
+local SERVICE_INFO = SERVICE_NAME
 
 local function to_str(v)
 	if type(v) == "table" then
@@ -32,7 +32,8 @@ local function format_msg(fmt, ...)
 			args[i] = table2str(args[i])
 		end
 	end
-	if type(fmt) == "string" then
+	-- 没有 % 时按 skynet.error 那样空格拼接。string.format 会丢掉用不上的参数，不能拿成功与否判断
+	if type(fmt) == "string" and fmt:find("%", 1, true) then
 		local ok, msg = pcall(string.format, fmt, table.unpack(args, 1, n))
 		if ok then
 			return msg
@@ -45,15 +46,25 @@ local function format_msg(fmt, ...)
 	return table.concat(str_list, " ")
 end
 
+local SRC_PREFIX = "../logic/service/"
+
+local function src_of(info)
+	local src = info and info.short_src or "?"
+	if src:sub(1, #SRC_PREFIX) == SRC_PREFIX then
+		return src:sub(#SRC_PREFIX + 1)
+	end
+	return src
+end
+
 -- 栈：调用方 -> _xxx -> write
 local function write(level, fmt, ...)
 	if LEVEL_TBL[level] < min_level then
 		return
 	end
 	local info = debug.getinfo(3, "Sl")
-	local line = string.format("[%s] [%s] <%s %s:%s> %s",
+	local line = string.format("[%s] [%s] %s %s:%s %s",
 		os.date("%Y-%m-%d %H:%M:%S"), string.upper(level), SERVICE_INFO,
-		info and info.short_src or "?", info and info.currentline or "?",
+		src_of(info), info and info.currentline or "?",
 		format_msg(fmt, ...))
 	skynet.send(".gamelog", "lua", "log", level, line)
 end

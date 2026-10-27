@@ -96,7 +96,7 @@ end
 skynet.start(function()
 	for filename, data in pairs(read_all()) do
 		sharedata.new(filename, data)
-		skynet.error("sharedata loaded:", filename)
+		LOG._debug("sharedata loaded:", filename)
 	end
 	skynet.dispatch("lua", function(session, source, cmd, ...)
 		local f = assert(CMD[cmd], cmd)

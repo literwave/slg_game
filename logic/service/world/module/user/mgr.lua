@@ -51,12 +51,12 @@ function module_on_user_login(user, is_first_login)
 end
 
 function on_user_login(user_id, fd, gate_srv, is_first_login)
-	skynet.error("world login success", user_id, gate_srv, is_first_login)
+	LOG._debug("world login success", user_id, gate_srv, is_first_login)
 	ref_login(user_id, fd, gate_srv)
 end
 
 function on_user_logout(user_id, fd)
-	skynet.error("world logout success", user_id, fd)
+	LOG._debug("world logout success", user_id, fd)
 	disconnect(fd, user_id)
 end
 
