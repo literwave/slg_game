@@ -233,10 +233,6 @@ function occupy_res_land(user, troop)
 		return
 	end
 	if empty then
-		if info.owner_id == 0 and not MARCH_MGR.world_call("land_connected", user_id, info.x, info.y) then
-			USER_MGR.tell_me(user_id, "领地不相连")
-			return
-		end
 		if info.troop_idx ~= 0 and info.troop_idx ~= troop:get_troop_idx() then
 			USER_MGR.tell_me(user_id, "已有部队驻守")
 			return
@@ -258,10 +254,6 @@ function occupy_res_land(user, troop)
 			return
 		end
 		return MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
-	end
-	if not MARCH_MGR.world_call("land_connected", user_id, info.x, info.y) then
-		USER_MGR.tell_me(user_id, "领地不相连")
-		return
 	end
 	local conf = DATA_COMMON.get_res_land_conf(info.cfg_id)
 	if not conf then

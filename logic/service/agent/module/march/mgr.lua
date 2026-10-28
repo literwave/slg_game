@@ -295,10 +295,6 @@ local function on_march(fd, packet)
 			USER_MGR.tell_me(user_id, empty and "这块空地已被占领" or "资源地已被占领")
 			return
 		end
-		if info.owner_id == 0 and not world_call("land_connected", user_id, info.x, info.y) then
-			USER_MGR.tell_me(user_id, "领地不相连")
-			return
-		end
 		if not empty and info.owner_id == user_id and info.remain <= 0 then
 			USER_MGR.tell_me(user_id, "资源尚未恢复")
 			return

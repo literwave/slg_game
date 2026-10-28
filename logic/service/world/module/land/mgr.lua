@@ -3,13 +3,6 @@
 
 local skynet = require "skynet"
 
-local DIRS = {
-	{1, 0},
-	{-1, 0},
-	{0, 1},
-	{0, -1},
-}
-
 -- [cell] = land_data。热更保留
 owned = owned or {}
 local gather_token = {}
@@ -136,24 +129,6 @@ function info(entity_id)
 	}
 end
 
--- 上下左右挨着自己的主城九格，或自己已经占的地。斜角不算
-function connected(user_id, x, y)
-	x, y = math.floor(x), math.floor(y)
-	for _, d in ipairs(DIRS) do
-		local nx, ny = x + d[1], y + d[2]
-		if nx >= 0 and ny >= 0 and nx < CONST.MAP_SIDE and ny < CONST.MAP_SIDE then
-			if MAP_MGR.city_of(nx, ny) == user_id then
-				return true
-			end
-			local doc = owned[CONST.res_land_cell(nx, ny)]
-			if doc and doc._owner_id == user_id then
-				return true
-			end
-		end
-	end
-	return false
-end
-
 local function start_gather(cell, doc)
 	local conf = DATA_COMMON.get_res_land_conf(doc._cfg_id)
 	if not conf then
@@ -222,9 +197,6 @@ function occupy(entity_id, user_id, troop_idx)
 		return
 	end
 	if view.owner_id ~= 0 and view.owner_id ~= user_id then
-		return
-	end
-	if view.owner_id == 0 and not connected(user_id, view.x, view.y) then
 		return
 	end
 	if view.troop_idx ~= 0 and view.troop_idx ~= troop_idx then

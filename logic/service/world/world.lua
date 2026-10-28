@@ -67,10 +67,6 @@ function CMD.res_land_info(_, entity_id)
 	return LAND_MGR.info(entity_id)
 end
 
-function CMD.land_connected(_, user_id, x, y)
-	return LAND_MGR.connected(user_id, x, y)
-end
-
 function CMD.occupy_res_land(_, entity_id, user_id, troop_idx)
 	return LAND_MGR.occupy(entity_id, user_id, troop_idx)
 end
