@@ -58,6 +58,19 @@ local function hostile(a, b)
 	return true
 end
 
+-- 两个玩家是否敌对。同人、同联盟不算
+function is_hostile(user_a, user_b)
+	if not user_a or not user_b or user_a == 0 or user_b == 0 or user_a == user_b then
+		return false
+	end
+	local aa = alliance_of[user_a]
+	local bb = alliance_of[user_b]
+	if aa and aa > 0 and aa == bb then
+		return false
+	end
+	return true
+end
+
 local function troop_key(e)
 	return e.user_id .. ":" .. e.troop_idx
 end

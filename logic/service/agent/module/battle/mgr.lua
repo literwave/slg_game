@@ -214,7 +214,23 @@ function attack_monster(user, troop)
 	})
 end
 
--- 部队到达地块。资源地打守军，赢了占领并采集。空地没有守军，占上后留在原地
+local function land_holder(info)
+	if (info.owner_id or 0) ~= 0 then
+		return info.owner_id
+	end
+	return info.pending_owner or 0
+end
+
+local function begin_land_countdown(user_id, troop, entity_id)
+	local gather_end, held, occupy_end = MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
+	if not held and not occupy_end and not gather_end then
+		USER_MGR.tell_me(user_id, "无法占领")
+		return
+	end
+	return gather_end, held, occupy_end
+end
+
+-- 部队到达地块。中立资源地打守军；别人的地打赢驻军（同格战）或无人防守后直接倒计时；自己的地接着采/驻
 function occupy_res_land(user, troop)
 	local user_id = user:get_user_id()
 	local entity_id = troop:get_target_id()
@@ -228,21 +244,17 @@ function occupy_res_land(user, troop)
 		return
 	end
 	local empty = info.cfg_id == 0
-	if info.owner_id ~= 0 and info.owner_id ~= user_id then
-		USER_MGR.tell_me(user_id, empty and "这块空地已被占领" or "资源地已被占领")
-		return
+	local holder = land_holder(info)
+	if holder ~= 0 and holder ~= user_id then
+		-- 有驻军时同格战先打；赢了到达这里，世界侧会踢走还没撤的驻军并开倒计时
+		return begin_land_countdown(user_id, troop, entity_id)
 	end
 	if empty then
 		if info.troop_idx ~= 0 and info.troop_idx ~= troop:get_troop_idx() then
 			USER_MGR.tell_me(user_id, "已有部队驻守")
 			return
 		end
-		local gather_end, held, occupy_end = MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
-		if not held and not occupy_end then
-			USER_MGR.tell_me(user_id, "无法占领")
-			return
-		end
-		return gather_end, held, occupy_end
+		return begin_land_countdown(user_id, troop, entity_id)
 	end
 	if info.owner_id == user_id then
 		if info.remain <= 0 then

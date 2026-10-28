@@ -138,6 +138,28 @@ function on_arrive(user_id, troop_idx, end_time)
 end
 
 -- 资源地采满，世界服务通知回城
+-- 地块被抢走：驻军还停在原地时强制回城
+function on_land_displaced(user_id, troop_idx, entity_id)
+	local user = USER_MGR.try_init_user(user_id)
+	local troop = TROOP_MGR.get_troop(user_id, troop_idx)
+	if not user or not troop then
+		return
+	end
+	if troop:get_target_type() ~= DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND then
+		return
+	end
+	if troop:get_target_id() ~= entity_id then
+		return
+	end
+	if troop:get_march_state() ~= CONST.MARCH_STATE.ARRIVED then
+		return
+	end
+	local fd = user:get_fd()
+	if begin_return(user, troop) and fd then
+		for_caller.s2c_sync_march(fd, {marchInfo = troop:get_march_pto()})
+	end
+end
+
 function on_occupy_done(user_id, troop_idx, gather_end)
 	local user = USER_MGR.try_init_user(user_id)
 	local troop = TROOP_MGR.get_troop(user_id, troop_idx)
@@ -291,8 +313,9 @@ local function on_march(fd, packet)
 			USER_MGR.tell_me(user_id, "等级不足")
 			return
 		end
-		if info.owner_id ~= 0 and info.owner_id ~= user_id then
-			USER_MGR.tell_me(user_id, empty and "这块空地已被占领" or "资源地已被占领")
+		local holder = (info.owner_id ~= 0 and info.owner_id) or (info.pending_owner or 0)
+		if holder ~= 0 and holder ~= user_id and not world_call("land_hostile", user_id, holder) then
+			USER_MGR.tell_me(user_id, "不能攻打同盟领地")
 			return
 		end
 		if not empty and info.owner_id == user_id and info.remain <= 0 then
@@ -300,9 +323,12 @@ local function on_march(fd, packet)
 			return
 		end
 		if info.troop_idx ~= 0 and info.troop_idx ~= troop:get_troop_idx() then
-			local occupying = info.occupy_end and info.occupy_end > TIME.os_bj_sec()
-			USER_MGR.tell_me(user_id, occupying and "已有部队在占领" or (empty and "已有部队驻守" or "已有部队在采集"))
-			return
+			if holder == user_id or holder == 0 then
+				local occupying = info.occupy_end and info.occupy_end > TIME.os_bj_sec()
+				USER_MGR.tell_me(user_id, occupying and "已有部队在占领" or (empty and "已有部队驻守" or "已有部队在采集"))
+				return
+			end
+			-- 敌方驻军：允许出征，到达后同格交战
 		end
 		ex, ey = info.x, info.y
 		target_id = packet.targetId

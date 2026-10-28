@@ -149,6 +149,12 @@ function CMD.occupy_done(user_id, troop_idx, gather_end)
 	end)
 end
 
+function CMD.land_displaced(user_id, troop_idx, entity_id)
+	get_user_queue(user_id)(function()
+		MARCH_MGR.on_land_displaced(user_id, troop_idx, entity_id)
+	end)
+end
+
 function CMD.encounter_snap(user_id, troop_idx)
 	return get_user_queue(user_id)(function()
 		return BATTLE_MGR.snap_troop(user_id, troop_idx)

@@ -189,18 +189,57 @@ local function drop_pending(cell, doc)
 	doc._troop_idx = 0
 end
 
--- 已经是自己的地：资源地接着采，空地留在原地。中立地只进入倒计时，到点才写入归属
+-- 把别人的驻军踢走。同格战输家回城时也会 leave；这里防抢占时还没撤干净
+local function kick_stationed(cell, doc, except_troop_idx)
+	local troop_idx = doc._troop_idx or 0
+	if troop_idx == 0 or troop_idx == except_troop_idx then
+		return
+	end
+	local holder = doc._owner_id or 0
+	if holder == 0 then
+		holder = doc._pending_owner or 0
+	end
+	doc._troop_idx = 0
+	doc._gather_end = 0
+	gather_token[cell] = nil
+	if holder == 0 then
+		return
+	end
+	local agent = agent_of(holder)
+	if agent then
+		skynet.send(agent, "lua", "land_displaced", holder, troop_idx, CONST.ENTITY_ID.RES_LAND + cell)
+	end
+end
+
+local function holder_of(view)
+	if (view.owner_id or 0) ~= 0 then
+		return view.owner_id
+	end
+	return view.pending_owner or 0
+end
+
+-- 已经是自己的地：资源地接着采，空地留在原地。中立地或敌对玩家的地进入倒计时，到点才写入归属
 function occupy(entity_id, user_id, troop_idx)
 	local view = info(entity_id)
 	local empty = view and view.cfg_id == 0
-	if not view or view.covered or (not empty and view.remain <= 0) then
+	if not view or view.covered then
 		return
 	end
-	if view.owner_id ~= 0 and view.owner_id ~= user_id then
+	-- 自己的资源地采空了不能再采；抢别人的采空地可以，到点后等补货
+	if not empty and view.remain <= 0 and view.owner_id == user_id then
+		return
+	end
+	local holder = holder_of(view)
+	if holder ~= 0 and holder ~= user_id and not ENCOUNTER_MGR.is_hostile(user_id, holder) then
 		return
 	end
 	if view.troop_idx ~= 0 and view.troop_idx ~= troop_idx then
-		return
+		if holder == user_id then
+			return
+		end
+		if holder == 0 or not ENCOUNTER_MGR.is_hostile(user_id, holder) then
+			return
+		end
 	end
 	local conf = not empty and DATA_COMMON.get_res_land_conf(view.cfg_id)
 	if not empty and not conf then
@@ -228,9 +267,6 @@ function occupy(entity_id, user_id, troop_idx)
 		show(cell, doc)
 		return end_time
 	end
-	if (view.pending_owner or 0) ~= 0 and view.pending_owner ~= user_id then
-		return
-	end
 	if not doc then
 		doc = ORM.new(ORM.CLS_LAND_DATA, {
 			_owner_id = 0,
@@ -246,6 +282,7 @@ function occupy(entity_id, user_id, troop_idx)
 		ORM.touch(doc)
 		owned[cell] = doc
 	end
+	kick_stationed(cell, doc, troop_idx)
 	local occupy_end = TIME.os_bj_sec() + DATA_COMMON.get_occupy_seconds()
 	doc._owner_id = 0
 	doc._pending_owner = user_id
@@ -257,6 +294,8 @@ function occupy(entity_id, user_id, troop_idx)
 	refill_token[cell] = nil
 	if empty then
 		doc._cfg_id = 0
+		doc._remain = 0
+	elseif conf and (doc._remain or 0) <= 0 then
 		doc._remain = 0
 	end
 	arm_occupy(cell, doc)

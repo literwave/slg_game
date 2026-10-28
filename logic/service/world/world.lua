@@ -67,6 +67,10 @@ function CMD.res_land_info(_, entity_id)
 	return LAND_MGR.info(entity_id)
 end
 
+function CMD.land_hostile(_, user_a, user_b)
+	return ENCOUNTER_MGR.is_hostile(user_a, user_b)
+end
+
 function CMD.occupy_res_land(_, entity_id, user_id, troop_idx)
 	return LAND_MGR.occupy(entity_id, user_id, troop_idx)
 end
