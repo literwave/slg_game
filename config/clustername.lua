@@ -3,4 +3,5 @@
 -- __nowaiting：对方还没起来时，cluster.call 直接失败，不卡住启动。
 __nowaiting = true
 
+center0 = "127.0.0.1:2527"
 game120 = "127.0.0.1:2528"

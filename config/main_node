@@ -15,6 +15,11 @@ snax = skynetdir.."script/?.lua;"
 cpath = skynetdir.."cservice/?.so"
 
 host_id = "120" -- 服务器id
+
+-- 地图构建见 docs/地图构建流程.md。留空继续读取既有 res/map。
+-- 新世界在首次启动前固定完整版本号；已有存档由 world_map_col 锁定版本。
+-- map_revision = "make map 输出的 64 位 mapRevision"
+-- map_package_root = "../build/maps" -- 相对 skynet 运行目录，生产环境可配置持久目录
 thread = 8
 logger = nil
 logpath = "."

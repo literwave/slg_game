@@ -137,4 +137,5 @@ end
 function reward_user_and_show(user_id, reward_list, reason_list, show_type_list)
 	local actual_rwd_list = reward_user(user_id, reward_list, reason_list)
 	show_reward(user_id, actual_rwd_list, show_type_list)
+	return actual_rwd_list
 end

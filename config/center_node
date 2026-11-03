@@ -1,0 +1,59 @@
+skynetdir = "./"   -- skynet目录
+rootdir = "../"    -- 根目录
+workdir = "../logic/"
+datadir = "../game_common/server/res/"
+
+preload = "../common/preload.lua"
+
+luaservice = skynetdir.."service/?.lua;"..workdir.."service/?.lua;"..skynetdir.."../start_up/?.lua;"..workdir.. "service/?/?.lua;"
+
+lualoader = skynetdir .. "lualib/loader.lua"
+lua_path = skynetdir.."lualib/?.lua;"..skynetdir.."lualib/?/init.lua;"..rootdir.."lualib/?.lua;"..rootdir.."lualib/?/init.lua;"..rootdir.."vendor/slg-navigation/?.lua;"..rootdir.."vendor/lua-zset/?.lua;"..workdir.."base/?.lua;"..datadir.."?.lua;";
+lua_cpath = skynetdir .. "luaclib/?.so;"
+snax = skynetdir.."script/?.lua;"
+cpath = skynetdir.."cservice/?.so"
+
+-- 中心节点。实际名字是 nodename .. host_id，须出现在 config/clustername.lua
+host_id = "0"
+nodename = "center"
+cluster = "../config/clustername.lua"
+
+thread = 8
+logger = nil
+harbor = 0
+console_port = 8001
+start = "center_start"
+bootstrap = "snlua bootstrap"
+
+-- mongo etc
+mongodb_host = "127.0.0.1"
+mongodb_port = "27017"
+mongodb_user = ""
+mongodb_password = ""
+
+-- redis etc
+redis_host = "127.0.0.1"
+redis_port = 6379
+redis_password = ""
+
+-- 协议路径
+pbpath = rootdir .. "game_common/pb/"
+
+-- 日志路径
+logpath = rootdir.."log"
+-- debug / info / warn / error，低于此级别的 LOG._xxx 不写
+log_level = "debug"
+
+------------ http相关（运维：就绪 / 关服） --------------
+http_port = 33024
+http_agent_cnt = 1
+
+------------ game相关 --------------
+game = "a"
+open_time = "2026-10-01 00:00:00"
+
+------------ 配置路径相关 --------------
+config_path = "../game_common/server/res/"
+schema_path = "../orm/schema"
+
+protocol = "ws"

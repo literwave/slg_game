@@ -1,5 +1,6 @@
 local skynet = require "skynet"
 local navigation = require "navigation"
+local world_map_package = require "world_map_package"
 
 local MAP_DIR = "../res/map/"
 
@@ -33,8 +34,7 @@ local function pos_to_idx(pos, w)
 end
 
 -- 已经落库的出生点占住，避免重启后分到同一格
-local function load_used_birth()
-	local all = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO)
+local function load_used_birth(all)
 	local w = map_obj:get_width()
 	for _, dat in pairs(all) do
 		if dat._has_birth then
@@ -68,9 +68,19 @@ local function index_land_cfg()
 end
 
 function init()
-	local manifest = dofile(MAP_DIR .. "manifest.lua")
-	local map_res = dofile(MAP_DIR .. "mapRes_0.lua")
-	local terrain = dofile(MAP_DIR .. "terrain.lua")
+	local expected_revision = skynet.getenv("map_revision")
+	local directory = MAP_DIR
+	if expected_revision and expected_revision ~= "" then
+		assert(#expected_revision == 64 and expected_revision:match("^[0-9a-f]+$"), "invalid configured map revision")
+		directory = (skynet.getenv("map_package_root") or "../build/maps") .. "/" .. expected_revision .. "/server"
+	else
+		expected_revision = nil
+	end
+	local manifest, map_res, terrain = world_map_package.load(directory, expected_revision, "../game_common/server/res")
+	local saved_users = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO)
+	local stored_map = MONGO_SLAVE.common_load_single("world_map_col", "static-map")
+	local legacy_revision = dofile("../config/map_legacy.lua")
+	local binding = world_map_package.binding(manifest, stored_map, next(saved_users) ~= nil, legacy_revision)
 	assert(map_res and map_res.w and map_res.h and map_res.list and map_res.emptyCells, "load mapRes_0 failed")
 	assert(manifest.width == map_res.w and manifest.height == map_res.h, "map size mismatch")
 	local w, h = map_res.w, map_res.h
@@ -119,7 +129,11 @@ function init()
 	nav_of_alliance = {}
 	nav_alone = navigation.new(w, h, terrain_obstacles)
 	obstacles = nil
-	load_used_birth()
+	load_used_birth(saved_users)
+	if binding then
+		MONGO_SLAVE.save_doc("world_map_col", "static-map", binding)
+		MONGO_SLAVE.flush_sync()
+	end
 	collectgarbage("collect")
 	LOG._debug("world map init %d %d rev %s block %d birth %d land %d mem %.0fKb",
 		w, h, map_revision, block_cnt, birth_cnt, land_cnt, collectgarbage("count"))

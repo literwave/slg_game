@@ -139,6 +139,25 @@ end
 
 -- 资源地采满，世界服务通知回城
 -- 地块被抢走：驻军还停在原地时强制回城
+-- 世界服务里还是这支部队占着就继续采。倒计时没结束时归属还没写上，也要留在原地
+-- 必须写在 on_occupy_done 前面：local function 对上面的全局函数不可见，会变成调 nil
+local function land_hold(user_id, troop)
+	local info = world_call("res_land_info", troop:get_target_id())
+	if not info or info.troop_idx ~= troop:get_troop_idx() then
+		return
+	end
+	if info.owner_id == user_id then
+		return "owned"
+	end
+	if info.pending_owner == user_id and info.occupy_end > TIME.os_bj_sec() then
+		return "wait"
+	end
+end
+
+local function still_occupying(user_id, troop)
+	return land_hold(user_id, troop) == "owned"
+end
+
 function on_land_displaced(user_id, troop_idx, entity_id)
 	local user = USER_MGR.try_init_user(user_id)
 	local troop = TROOP_MGR.get_troop(user_id, troop_idx)
@@ -194,24 +213,6 @@ function on_gather_full(user_id, troop_idx, end_time)
 	if begin_return(user, troop) and fd then
 		for_caller.s2c_sync_march(fd, {marchInfo = troop:get_march_pto()})
 	end
-end
-
--- 世界服务里还是这支部队占着就继续采。倒计时没结束时归属还没写上，也要留在原地
-local function land_hold(user_id, troop)
-	local info = world_call("res_land_info", troop:get_target_id())
-	if not info or info.troop_idx ~= troop:get_troop_idx() then
-		return
-	end
-	if info.owner_id == user_id then
-		return "owned"
-	end
-	if info.pending_owner == user_id and info.occupy_end > TIME.os_bj_sec() then
-		return "wait"
-	end
-end
-
-local function still_occupying(user_id, troop)
-	return land_hold(user_id, troop) == "owned"
 end
 
 function on_aoi_push(fd, pack)

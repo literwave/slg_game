@@ -71,3 +71,29 @@ $(ZSET_SO): $(ZSET_SRC) $(ZSET_DIR)/skiplist.h
 clean:
 	-$(MAKE) -C skynet cleanall
 	rm -f $(PROTOBUF_SO) $(NAV_SO) $(AOI_SO) $(ZSET_SO)
+
+# 静态地图工具。环境变量直接传给 Python，避免拼接命令行参数。
+# 默认只生成 build/maps/ 候选包，不改 res/map，不启动或重置世界。
+PYTHON ?= python3
+OUT ?= build/maps
+CLIENT_REPO ?= git@github.com:literwave/slg_game_client.git
+CLIENT_REF ?= master
+# SEED/PROFILE 仅为拒绝旧用法而转交，工具不再支持随机生成或后端地图副本。
+export CLIENT_REPO CLIENT_REF OUT MAP FROM TO SERVER_MAP SEED PROFILE CLIENT
+.PHONY: map map-check map-check-server map-diff map-test
+
+map:
+	$(PYTHON) tools/world/map.py build
+
+map-check:
+	$(PYTHON) tools/world/map.py check
+
+map-check-server:
+	$(PYTHON) tools/world/map.py verify-server
+
+map-diff:
+	$(PYTHON) tools/world/map.py diff
+
+map-test:
+	$(PYTHON) -m unittest discover -s tools/world/tests -v
+	$(LUA_INC)/lua test/unit/run.lua test/unit/test_world_map_package.lua

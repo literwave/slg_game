@@ -17,6 +17,7 @@ local STOP_SERVICE_LIST = {
 	".activity",
 	".union",
 	".game_sid",
+	".center",		-- 中心协调（仅 center 节点有）
 	".mongodb",		-- 写完队列里剩下的再断开
 	".gamelog",		-- 刷盘，之后改为逐行落盘直到进程退出
 }
@@ -65,11 +66,16 @@ function CMD.stop()
 	is_stopping = true
 	local fail_list = {}
 	for _, service_name in ipairs(STOP_SERVICE_LIST) do
-		LOG._debug("shutdown step", service_name)
-		local ok, err = pcall(skynet.call, service_name, "lua", "shutdown")
-		if not ok then
-			skynet.error("shutdown step failed", service_name, err)
-			table.insert(fail_list, service_name)
+		-- 分节点部署时本进程可能没有该服务（如 center 只有 .gamelog）
+		if not skynet.localname(service_name) then
+			LOG._debug("shutdown skip missing", service_name)
+		else
+			LOG._debug("shutdown step", service_name)
+			local ok, err = pcall(skynet.call, service_name, "lua", "shutdown")
+			if not ok then
+				skynet.error("shutdown step failed", service_name, err)
+				table.insert(fail_list, service_name)
+			end
 		end
 	end
 	if fail_list[1] then
@@ -90,14 +96,21 @@ local HOT_UPDATE_SERVICE_LIST = {
 
 local function get_hot_update_targets()
 	local list = {}
-	for _, addr in ipairs(skynet.call(".gated", "lua", "get_agent_list")) do
-		table.insert(list, {name = "agent" .. skynet.address(addr), addr = addr})
+	if skynet.localname(".gated") then
+		for _, addr in ipairs(skynet.call(".gated", "lua", "get_agent_list")) do
+			table.insert(list, {name = "agent" .. skynet.address(addr), addr = addr})
+		end
 	end
 	for _, name in ipairs(HOT_UPDATE_SERVICE_LIST) do
-		table.insert(list, {name = name, addr = name})
+		if skynet.localname(name) then
+			table.insert(list, {name = name, addr = name})
+		end
 	end
 	for i = 1, tonumber(skynet.getenv("battle_cnt")) or 1 do
-		table.insert(list, {name = ".battle" .. i, addr = ".battle" .. i})
+		local name = ".battle" .. i
+		if skynet.localname(name) then
+			table.insert(list, {name = name, addr = name})
+		end
 	end
 	return list
 end

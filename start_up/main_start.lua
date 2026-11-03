@@ -1,6 +1,22 @@
 local skynet = require "skynet"
 local cluster = require "skynet.cluster"
 
+-- 从 config/clustername.lua 取 center 节点名（键以 center 开头）
+local function center_nodename()
+	local conf = {}
+	local path = assert(skynet.getenv("cluster"), "cluster config missing")
+	local f = assert(io.open(path))
+	local source = f:read("*a")
+	f:close()
+	assert(load(source, "@" .. path, "t", conf))()
+	for name, addr in pairs(conf) do
+		if type(name) == "string" and name:sub(1, 6) == "center" and type(addr) == "string" then
+			return name
+		end
+	end
+	error("no center node in " .. path)
+end
+
 skynet.start(function()
 	skynet.newservice("gamelog") -- save file not save db
 	LOG._debug("server start")
@@ -31,5 +47,8 @@ skynet.start(function()
 		skynet.newservice("battle", i)
 	end
 	skynet.call(".mcs", "lua", "set_ready")
+	-- 向中心节点上报本服就绪；center 未起时 __nowaiting 下会丢掉，不阻塞启动
+	-- 这样上报肯定是不稳的，还是通过心跳吧，这样才能保证稳定
+	cluster.send(center_nodename(), ".center", "lua", "set_ready", nodename)
 	skynet.exit()
 end)

@@ -598,6 +598,7 @@ doc._heroes[hero_type] = nil
 | [FRAMEWORK_REVIEW.md](FRAMEWORK_REVIEW.md) | 架构评价与改进建议 |
 | [PERFORMANCE_ANALYSIS.md](PERFORMANCE_ANALYSIS.md) | 性能与负载分析 |
 | [docs/GATE_SCALING.md](docs/GATE_SCALING.md) | 网关扩展：进程内多 worker，以及还没做的跨进程方案 |
+| [docs/地图构建流程.md](docs/地图构建流程.md) | `make map` 生成、校验、预览、差异比较与世界版本绑定 |
 
 上游参考：[Skynet Wiki](https://github.com/cloudwu/skynet/wiki)
 

@@ -142,9 +142,12 @@ local function fight_group(user, troop, ctx)
 		def_after[p] = {count = left, hurt = 0}
 	end
 	local rewards = {}
+	local given
 	local reward_list = res.result == CONST.BATTLE_RESULT.WIN and ctx.on_win()
 	if reward_list then
-		for _, rw in ipairs(REWARD_MGR.reward_user(user_id, reward_list, {CONST.FLOW_REASON.BATTLE, ctx.target_id})) do
+		-- 客户端 battle_result 不弹窗，必须走 s2c_show_reward
+		given = REWARD_MGR.reward_user_and_show(user_id, reward_list, {CONST.FLOW_REASON.BATTLE, ctx.target_id})
+		for _, rw in ipairs(given) do
 			rewards[#rewards + 1] = {_reward_type = rw.reward_type, _item_id = rw.item_id, _item_count = rw.item_count}
 		end
 	end
