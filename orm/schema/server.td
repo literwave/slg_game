@@ -15,4 +15,6 @@ rank_map <number, rank_entry>
 server_data {
     _power_tbl rank_map
     _city_tbl rank_map
+    _kill_tbl rank_map
+    _alliance_power_tbl rank_map
 }

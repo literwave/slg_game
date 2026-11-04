@@ -1,0 +1,7 @@
+-- 独立 Skynet 进程，只运行 MongoDB 集成测试，不启动游戏入口。
+include "main_node"
+start = "test_persistence"
+luaservice = luaservice .. ";../test/integration/?.lua"
+daemon = nil
+logger = nil
+thread = 2

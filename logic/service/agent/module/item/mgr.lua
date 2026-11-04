@@ -55,16 +55,10 @@ function get_item_max_add_cnt(item_id)
 	return DATA_COMMON.get_item_overlap(item_id)
 end
 
-local ITEM_KIND_TO_MOD = {
-	[CONST.ITEM_KIND.HERO_EQUIP] = CLS_HERO_EQUIP_ITEM,
-}
-
 local function create_item(oci)
 	local item_id = oci._item_id
 	assert(item_id)
-	local kind = DATA_COMMON.get_item_kind(item_id)
-	local mod = ITEM_KIND_TO_MOD[kind] or CLS_BASE_ITEM
-	local item = mod.cls_item:New(oci)
+	local item = CLS_BASE_ITEM.cls_item:New(oci)
 	ref_item(item)
 	return item
 end
@@ -150,27 +144,9 @@ function add_item_cnt_no_sync(user_id, item_id, cnt, reason_list, new_item_list)
 	return do_add_item_cnt(user_id, item_id, cnt, false, reason_list, new_item_list)
 end
 
-local function reward_resource_base(user_id, item_id, cnt, reason_list)
-	add_item_cnt(user_id, item_id, cnt, reason_list)
-end
-
-local ITEM_KIND_REWARD_FUNC = {
-	[CONST.ITEM_KIND.RES] = reward_resource_base,
-	[CONST.ITEM_KIND.HERO_CHIP] = reward_resource_base,
-	[CONST.ITEM_KIND.HERO_EQUIP] = reward_resource_base,
-	[CONST.ITEM_KIND.RANDOM_REWARD] = reward_resource_base,
-	[CONST.ITEM_KIND.SOLDIER] = reward_resource_base,
-	[CONST.ITEM_KIND.VIP] = reward_resource_base,
-}
-
 function add_item(user_id, item_id, cnt, reason_list)
 	local item_kind = DATA_COMMON.get_item_kind(item_id)
-	local func = ITEM_KIND_REWARD_FUNC[item_kind]
-	if func then
-		func(user_id, item_id, cnt, reason_list)
-	else
-		add_item_cnt(user_id, item_id, cnt, reason_list)
-	end
+	add_item_cnt(user_id, item_id, cnt, reason_list)
 	if item_kind == CONST.SKILL_BOOK_KIND and SKILL_MGR then
 		SKILL_MGR.on_item_add(user_id, item_id)
 	end

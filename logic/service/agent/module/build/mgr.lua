@@ -127,7 +127,7 @@ local function limit_met(user_id, limits)
 	return true
 end
 
--- 粮木铁是道具 1、2、3。石料是资源栏 key 5。数量为 0 的不放进消耗列表
+-- 四种资源统一从新版 Item 道具栏扣除。
 local function cost_list_of(conf)
 	local list = {}
 	local function add(count, item_id, cost_type)
@@ -142,7 +142,7 @@ local function cost_list_of(conf)
 	add(conf.CostGrain, CONST.BUILD_COST_ITEM.GRAIN)
 	add(conf.CostWood, CONST.BUILD_COST_ITEM.WOOD)
 	add(conf.CostIron, CONST.BUILD_COST_ITEM.IRON)
-	add(conf.CostStone, CONST.RES_TYPE_STONE, CONST.COST_TYPE.RES)
+	add(conf.CostStone, CONST.BUILD_COST_ITEM.STONE, CONST.COST_TYPE.ITEM)
 	return list
 end
 

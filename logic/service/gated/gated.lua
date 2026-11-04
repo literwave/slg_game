@@ -47,17 +47,26 @@ function CMD.get_agent_list()
 end
 
 -- 顺序：停收连接 -> worker 停止转发 -> agent 逐个下线存盘 -> worker 断开客户端
+local stopped_agents, stopped_workers = {}, {}
 function CMD.shutdown()
-	is_closing = true
-	socket.close(LISTEN_FD)
+	if not is_closing then
+		is_closing = true
+		socket.close(LISTEN_FD)
+	end
 	for _, worker in ipairs(worker_list) do
-		skynet.call(worker, "lua", "stop_forward")
+		if not stopped_workers[worker] then skynet.call(worker, "lua", "stop_forward") end
 	end
 	for _, agent in ipairs(agent_list) do
-		skynet.call(agent, "lua", "shutdown")
+		if not stopped_agents[agent] then
+			skynet.call(agent, "lua", "shutdown")
+			stopped_agents[agent] = true
+		end
 	end
 	for _, worker in ipairs(worker_list) do
-		skynet.call(worker, "lua", "shutdown")
+		if not stopped_workers[worker] then
+			skynet.call(worker, "lua", "shutdown")
+			stopped_workers[worker] = true
+		end
 	end
 	skynet.fork(skynet.exit)
 end

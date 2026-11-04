@@ -7,8 +7,9 @@ local POWER = 1
 local function setup(doc)
 	local env = setmetatable({}, {__index = _G})
 	local clock = {now = 1000}
-	doc = doc or {_power_tbl = {}, _city_tbl = {}}
-	env.DATA_COMMON = {RANK_TYPE = {POWER = 1, CITY_LEVEL = 2}}
+	doc = doc or {_power_tbl = {}, _city_tbl = {}, _kill_tbl = {}, _alliance_power_tbl = {}}
+	env.DATA_COMMON = {RANK_TYPE = dofile("game_common/server/enum/RankTypeEnum.lua"),
+		get_rank_max = function(kind) return kind == 4 and 50 or 100 end}
 	env.TIME = {os_bj_sec = function() return clock.now end}
 	env.ORM = {load = function() return doc end}
 	env.MONGO_SLAVE = {COL = {}, system_startup = function() end}
@@ -73,6 +74,21 @@ function T.name_kept_when_score_changes()
 	M.set_score(POWER, 1, 200)
 	local item = M.get_rank_list(POWER, 1, 1, 1).list[1]
 	assert(item.name == "new" and item.head_icon == 2 and item.score == 200)
+end
+
+function T.new_boards_limit_and_restart()
+	local M, doc = setup()
+	for uid = 1, 105 do M.set_score(3, uid, uid, "p" .. uid, 1) end
+	for uid = 1, 55 do M.set_score(4, uid, uid * 10, "a" .. uid, 0) end
+	assert(#M.get_rank_list(3, 1, 200, 1).list == 100)
+	assert(M.get_rank_list(3, 1, 20, 1).self.rank == 0)
+	assert(M.get_rank_list(3, 1, 20, 1).self.score == 1, "未上榜仍带真实分数")
+	assert(#M.get_rank_list(4, 45, 20, 55).list == 6)
+	assert(#M.get_rank_list(4, 51, 20, 55).list == 0)
+	local restarted = setup(doc)
+	assert(restarted.get_rank(4, 55) == 1)
+	restarted.set_score(4, 55, 0)
+	assert(restarted.get_rank(4, 55) == 0)
 end
 
 return T

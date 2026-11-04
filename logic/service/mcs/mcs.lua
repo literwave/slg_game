@@ -25,6 +25,8 @@ local is_stopping = false
 local is_updating = false
 -- main_start 把所有服务拉起后置 true，shell/start.sh 轮询 status 判断启动完成
 local is_ready = false
+local stopped_services = {}
+local stop_error = nil
 
 function CMD.set_ready()
 	is_ready = true
@@ -34,6 +36,7 @@ function CMD.status()
 	if is_stopping then
 		return "stopping"
 	end
+	if stop_error then return "stop_failed" end
 	return is_ready and "ready" or "starting"
 end
 
@@ -64,22 +67,25 @@ function CMD.stop()
 		return "hot updating, try later"
 	end
 	is_stopping = true
-	local fail_list = {}
+	is_ready = false
+	stop_error = nil
 	for _, service_name in ipairs(STOP_SERVICE_LIST) do
 		-- 分节点部署时本进程可能没有该服务（如 center 只有 .gamelog）
-		if not skynet.localname(service_name) then
+		if stopped_services[service_name] or not skynet.localname(service_name) then
 			LOG._debug("shutdown skip missing", service_name)
 		else
 			LOG._debug("shutdown step", service_name)
 			local ok, err = pcall(skynet.call, service_name, "lua", "shutdown")
 			if not ok then
 				skynet.error("shutdown step failed", service_name, err)
-				table.insert(fail_list, service_name)
+				-- 保存失败时保留服务和数据库连接，恢复后可重试关服。
+				-- 继续关闭 .mongodb 会使待重试的数据永久丢失。
+				stop_error = service_name
+				is_stopping = false
+				return "stop failed: " .. service_name .. "; restore database and retry"
 			end
+			stopped_services[service_name] = true
 		end
-	end
-	if fail_list[1] then
-		return "stopped, failed: " .. table.concat(fail_list, ",")
 	end
 	return "stopped"
 end

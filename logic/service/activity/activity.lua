@@ -4,6 +4,7 @@ require "skynet.manager"
 local CMD = {}
 
 function CMD.shutdown()
+	MONGO_SLAVE.flush_sync()
 	skynet.fork(skynet.exit)
 end
 

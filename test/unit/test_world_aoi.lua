@@ -232,4 +232,22 @@ function T.step_error_still_flushes()
 	assert(#list[1].pack.enter == 1)
 end
 
+function T.march_path_only_owned_or_visible_and_keeps_float()
+	local A = load_aoi()
+	A.start_march({user_id = 1, troop_idx = 1, path = {{_x=2.25,_y=1.5},{_x=4.75,_y=3.25}}, start_time=0, end_time=10})
+	local id = A.CONST.troop_entity_id(1, 1)
+	assert(#A.get_march_path(9, id) == 0)
+	local mine = A.get_march_path(1, id)
+	assert(mine[1].x == 2.25 and mine[2].y == 3.25)
+	mine[1].x = 99
+	assert(A.get_march_path(1, id)[1].x == 2.25, "返回独立副本")
+	A.focus(9, 2, 2)
+	assert(#A.get_march_path(9, id) == 2)
+	A.focus(9, 900, 900)
+	assert(#A.get_march_path(9, id) == 0)
+	A.hide_troop(1, 1)
+	assert(#A.get_march_path(1, id) == 0)
+	assert(#A.get_march_path(1, 999999) == 0)
+end
+
 return T

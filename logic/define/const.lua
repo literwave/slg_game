@@ -33,9 +33,7 @@ SEX_WOMAN = 2
 RES_TYPE_FOOD = 1
 RES_TYPE_WARER = 2
 RES_TYPE_WOOD = 3
--- 资源栏石料。key 是 5，和道具 Id、客户端资源栏一致，中间空过 4
-RES_TYPE_STONE = 5
-RES_BAR_LIST = {RES_TYPE_FOOD, RES_TYPE_WARER, RES_TYPE_WOOD, RES_TYPE_STONE}
+RES_BAR_LIST = {RES_TYPE_FOOD, RES_TYPE_WARER, RES_TYPE_WOOD}
 
 COST_TYPE = {
 	DIAMOND = 1,
@@ -44,13 +42,16 @@ COST_TYPE = {
 }
 
 ITEM_KIND = {
-	RES = 1,
-	HERO_CHIP = 2,
-	GIFT = 3,
-	HERO_EQUIP = 4,
-	RANDOM_REWARD = 5,
-	SOLDIER = 6,
-	VIP = 7,
+	GRAIN = 1,
+	WOOD = 2,
+	IRON = 3,
+	STONE = 4,
+	SPEEDUP = 5,
+	MOVE_CITY = 6,
+	TOKEN = 7,
+	HERO_CHIP = 8,
+	LOTTERY = 9,
+	SKILL_BOOK = 10,
 }
 
 NO_NAME = ""
@@ -86,7 +87,7 @@ BUILD_COST_ITEM = {
 	GRAIN = 1,
 	WOOD = 2,
 	IRON = 3,
-	STONE = 5,
+	STONE = 4,
 }
 
 ONE_HOUR_SEC = 3600
@@ -293,7 +294,7 @@ ALLIANCE_CHANGE = {
 }
 
 -- 名字/公告/宣言长度、申请上限、创建消耗数量读 Global 10~14
-ALLIANCE_CREATE_ITEM = 4		-- 创建联盟消耗的令牌道具 id
+ALLIANCE_CREATE_ITEM = 100		-- 创建联盟消耗的令牌道具 id
 ALLIANCE_LIST_DEFAULT = 20		-- 联盟列表 count = 0 或超过上限时用
 ALLIANCE_LIST_MAX = 50
 ALLIANCE_INVITE_EXPIRE = 86400	-- 邀请有效期，只存内存

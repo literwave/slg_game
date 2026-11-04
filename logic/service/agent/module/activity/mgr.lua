@@ -107,6 +107,15 @@ local function report_score(user_id)
 	local name, head_icon = user:get_name(), user:get_head_icon()
 	call_rank("set_score", DATA_COMMON.RANK_TYPE.POWER, user_id, user:get_power(), name, head_icon)
 	call_rank("set_score", DATA_COMMON.RANK_TYPE.CITY_LEVEL, user_id, user:get_city_level(), name, head_icon)
+	call_rank("set_score", DATA_COMMON.RANK_TYPE.KILL, user_id, user._data._kill_count, name, head_icon)
+end
+
+-- 只由服务端战斗结算调用，客户端不能上报歼敌数。
+function add_kills(user, count)
+	count = math.max(0, math.floor(count or 0))
+	if count == 0 then return end
+	user._data._kill_count = user._data._kill_count + count
+	call_rank("set_score", DATA_COMMON.RANK_TYPE.KILL, user:get_user_id(), user._data._kill_count, user:get_name(), user:get_head_icon())
 end
 
 local function rank_item_pto(item)
@@ -115,15 +124,20 @@ end
 
 local function on_req_rank_list(fd, packet)
 	local user_id = USER_MGR.get_user_id_by_fd(fd)
-	if not user_id or not DATA_COMMON.get_rank_type_conf(packet.rankType) then
+	if not user_id or not packet or not DATA_COMMON.get_rank_type_conf(packet.rankType) then
 		return
 	end
-	local start = math.max(1, packet.start)
-	local count = packet.count
-	if count == 0 or count > CONST.RANK_PAGE_MAX then
+	local start = math.max(1, math.floor(packet.start or 1))
+	local count = math.floor(packet.count or 0)
+	if count <= 0 or count > CONST.RANK_PAGE_MAX then
 		count = CONST.RANK_PAGE_DEFAULT
 	end
-	local ret = call_rank("get_rank_list", packet.rankType, start, count, user_id)
+	local self_id = user_id
+	if packet.rankType == DATA_COMMON.RANK_TYPE.ALLIANCE_POWER then
+		local alliance = skynet.call(".union", "lua", "public_user_alliance", user_id)
+		self_id = alliance and alliance.id or 0
+	end
+	local ret = call_rank("get_rank_list", packet.rankType, start, count, self_id)
 	if not ret then
 		return
 	end

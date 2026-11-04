@@ -30,6 +30,11 @@ function CMD.update_brief(brief)
 	ALLIANCE_MGR.on_brief_change(brief)
 end
 
+function CMD.public_user_alliance(user_id)
+	local doc = ALLIANCE_MGR.get_user_alliance(user_id)
+	return doc and {id = doc._alliance_id, name = doc._name} or {id = 0, name = ""}
+end
+
 skynet.start(function()
 	dofile "../logic/service/union/preload.lua"
 	skynet.dispatch("lua", function(session, _, cmd, ...)

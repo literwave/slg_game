@@ -379,6 +379,13 @@ function on_encounter(user_id, troop_idx, pack)
 		end
 	end
 	local opponent = pack.role == CONST.BATTLE_SIDE.ATK and pack.def_side or pack.atk_side
+	local enemy_left = pack.role == CONST.BATTLE_SIDE.ATK and pack.def_left or pack.atk_left
+	local kills = 0
+	for _, unit in ipairs(opponent.units or {}) do
+		local left = enemy_left and enemy_left[unit.pos]
+		if left then kills = kills + math.max(0, (unit.soldier or 0) - left) end
+	end
+	ACTIVITY_MGR.add_kills(user, kills)
 	local report = REPORT_MGR.add_report(user_id, {
 		_report_type = pack.role == CONST.BATTLE_SIDE.ATK and DATA_COMMON.REPORT_TYPE.ATTACK_PLAYER or DATA_COMMON.REPORT_TYPE.DEFEND,
 		_target_type = 0,

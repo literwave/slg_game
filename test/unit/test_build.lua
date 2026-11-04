@@ -7,7 +7,7 @@ local function setup()
 	local tells = {}
 	local syncs = {}
 	local paid = {}
-	local items = {[1] = 400, [2] = 400, [3] = 0, [5] = 0}
+	local items = {[1] = 400, [2] = 400, [3] = 0, [4] = 0}
 	local levels = {
 		[1] = {
 			[1] = {Id = 101, CostGrain = 0, CostWood = 0, CostIron = 0, CostStone = 0, UpgradeLimit = {}},
@@ -33,10 +33,11 @@ local function setup()
 	env.CONST = {
 		COST_TYPE = {ITEM = 3},
 		FLOW_REASON = {BUILD = 14},
-		BUILD_COST_ITEM = {GRAIN = 1, WOOD = 2, IRON = 3, STONE = 5},
+		BUILD_COST_ITEM = {GRAIN = 1, WOOD = 2, IRON = 3, STONE = 4},
 		EVENT = {ON_BUILD_LEVEL = "on_build_level", ON_USER_LOGIN = "login", ON_USER_LOGOUT = "logout"},
 	}
 	env.DATA_COMMON = {
+		get_main_city_bid = function() return 1 end,
 		get_initial_build_list = function()
 			return {{bid = 1, level = 1}, {bid = 10, level = 1}}
 		end,
@@ -48,6 +49,8 @@ local function setup()
 		end,
 	}
 	env.USER_MGR = {
+		get_user_by_id = function() return {} end,
+		sync_city_aoi = function() end,
 		get_user_id_by_fd = function() return 1 end,
 		get_fd_by_user_id = function() return 9 end,
 		tell_me = function(_, msg) tells[#tells + 1] = msg end,
@@ -171,6 +174,16 @@ function T.create_checks_limit_and_syncs()
 	env.for_maker.c2s_create_build(9, {bid = 2})
 	assert(env.get_build_by_bid(1, 2):get_level() == 1)
 	assert(syncs[#syncs].bid == 2 and syncs[#syncs].level == 1)
+end
+
+function T.stone_cost_uses_current_item_id()
+	local env, _, _, items, paid = setup()
+	items[4] = 75
+	env.DATA_COMMON.get_build_level_conf = function()
+		return {Id=102,CostStone=50,UpgradeLimit={}}
+	end
+	env.for_maker.c2s_up_build(9,{bid=1})
+	assert(items[4]==25 and #paid==1 and paid[1].itemId==4 and paid[1].cost_type==3)
 end
 
 return T

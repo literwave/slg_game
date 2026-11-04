@@ -11,6 +11,8 @@ local function entry_tbl(rank_type)
 	if rank_type == DATA_COMMON.RANK_TYPE.CITY_LEVEL then
 		return server_doc._city_tbl
 	end
+	if rank_type == DATA_COMMON.RANK_TYPE.KILL then return server_doc._kill_tbl end
+	if rank_type == DATA_COMMON.RANK_TYPE.ALLIANCE_POWER then return server_doc._alliance_power_tbl end
 end
 
 -- 同分时 zset 的反向排名里 ts 小的靠前，传达到分数的时间，先到的排前面
@@ -62,7 +64,9 @@ function get_rank_list(rank_type, start, count, self_id)
 		return
 	end
 	local list = {}
-	local total = z:count()
+	local total = math.min(z:count(), DATA_COMMON.get_rank_max(rank_type))
+	start = math.max(1, math.floor(start or 1))
+	count = math.max(0, math.floor(count or 0))
 	if start <= total then
 		local last = math.min(total, start + count - 1)
 		for i, member in ipairs(z:rev_range(start, last)) do
@@ -83,7 +87,8 @@ function get_rank(rank_type, user_id)
 	if not z then
 		return 0
 	end
-	return z:rev_rank(tostring(user_id)) or 0
+	local rank = z:rev_rank(tostring(user_id)) or 0
+	return rank <= DATA_COMMON.get_rank_max(rank_type) and rank or 0
 end
 
 local function build_rank(rank_type)

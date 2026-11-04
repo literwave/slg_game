@@ -77,11 +77,11 @@ local T = {}
 
 function T.strong_troop_beats_weak_group()
 	local M = setup()
-	local atk = {owner_id = 1, units = {hero_unit(1, 1001, 500), hero_unit(2, 1010, 500)}}
+	local atk = {owner_id = 1, units = {hero_unit(1, 1001, 8000, 50), hero_unit(2, 1010, 8000, 50)}}
 	local res = M.fight(atk, group_side(1), seeded(7))
 	assert(res.result == 1, "should win")
 	assert(sum(res.def_left) == 0)
-	assert(sum(res.atk_left) > 0 and sum(res.atk_left) <= 1000)
+	assert(sum(res.atk_left) > 0 and sum(res.atk_left) <= 16000)
 	assert(res.max_round >= 1 and res.max_round <= M.CONST.BATTLE_MAX_ROUND)
 	assert(#res.actions > 0)
 end
@@ -160,13 +160,15 @@ end
 
 function T.batch_carries_defender_soldier()
 	local M = setup()
-	local weak = {owner_id = 1, units = {hero_unit(1, 1003, 60)}}
-	local strong = {owner_id = 2, units = {hero_unit(1, 1001, 800), hero_unit(2, 1010, 800)}}
+	local weak = {owner_id = 1, units = {hero_unit(1, 1003, 300)}}
+	local strong = {owner_id = 2, units = {hero_unit(1, 1001, 8000, 50), hero_unit(2, 1010, 8000, 50)}}
 	local def = group_side(3)
+	local original_soldiers = 0
+	for _, unit in ipairs(def.units) do original_soldiers = original_soldiers + unit.soldier end
 	local list = M.fight_batch(def, {weak, strong, weak}, seeded(9))
 	assert(#list == 3)
 	assert(list[1].result == 2)
-	assert(sum(list[1].def_left) < 400 + 180, "first attacker chipped the defender")
+	assert(sum(list[1].def_left) < original_soldiers, "first attacker chipped the defender")
 	assert(list[2].result == 1)
 	assert(list[3].result == 1 and #list[3].actions == 0, "defender already gone")
 	assert(def.units[1].soldier == MONSTER[4].Soldier, "input snapshot untouched")

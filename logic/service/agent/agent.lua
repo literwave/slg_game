@@ -121,6 +121,10 @@ function CMD.set_open_time(t)
 	GAME.set_open_time(t)
 end
 
+function CMD.public_user_profile(user_id)
+	return USER_MGR.get_public_profile(user_id)
+end
+
 function CMD.march_arrive(user_id, troop_idx, end_time)
 	get_user_queue(user_id)(function()
 		MARCH_MGR.on_arrive(user_id, troop_idx, end_time)

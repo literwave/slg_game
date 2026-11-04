@@ -12,7 +12,8 @@ local function load_conf(name)
 end
 
 local MAIL = load_conf("Mail")
-local MAIL_KIND = load_conf("MailKind")
+local MAIL_KIND = {}
+for _, id in pairs(dofile("game_common/server/enum/MailKindEnum.lua")) do MAIL_KIND[id] = true end
 local GLOBAL = load_conf("Global")
 
 do

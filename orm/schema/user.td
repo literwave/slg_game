@@ -18,6 +18,9 @@ user_data {
     _user_id number
     _birth_time number
     _login_time number
+    _offline_time number
+    _kill_count number
+    _land_first res_map
     _born_server_id number
     _name string
     _sex number

@@ -11,18 +11,25 @@ local function load_conf(name)
 	return r
 end
 
-local function enum_of(conf)
+local function enum_members(conf)
 	local r = {}
-	for id, row in pairs(conf) do
-		r[row.Enum] = id
+	for _, id in pairs(conf) do
+		r[id] = true
 	end
 	return r
 end
 
 local ALLIANCE_LV = load_conf("AllianceLv")
-local JOIN_TYPE = load_conf("AllianceJoinType")
-local CHANNEL = load_conf("ChatChannel")
+local JOIN_TYPE = dofile("game_common/server/enum/AllianceJoinTypeEnum.lua")
+local CHANNEL = dofile("game_common/server/enum/ChatChannelEnum.lua")
 local GLOBAL = load_conf("Global")
+
+local function copy(value)
+	if type(value) ~= "table" then return value end
+	local out = {}
+	for k, v in pairs(value) do out[k] = copy(v) end
+	return out
+end
 
 local function init_orm()
 	if orm.inited then
@@ -42,12 +49,21 @@ local function setup(opts)
 	local clock = {now = 1000}
 	local sent = {}
 	local mongo = {saved = opts.saved or {}, deleted = {}}
+	mongo.chat = opts.chat_saved or {sequence = 0}
+	mongo.chat_reads = 0
 	local costs = {}
 	local mails = {}
+	local rank_scores = {}
 	local CONST = setmetatable({}, {__index = _G})
 	assert(loadfile("logic/define/const.lua", "t", CONST))()
 	-- union 回 agent 扣令牌；opts.cost_fail 模拟令牌不足
 	local skynet_stub = {
+		error = function() end,
+		localname = function() return ".activity" end,
+		timeout = function(_, fn) fn() end,
+		send = function(_, _, cmd, rank_type, aid, score, name)
+			if cmd == "set_score" then rank_scores[aid] = {type=rank_type,score=score,name=name} end
+		end,
 		call = function(_, _, cmd, user_id, cost_list)
 			if cmd == "get_agent_list" then
 				return {"agent"}
@@ -71,6 +87,9 @@ local function setup(opts)
 			if name == "skynet" then
 				return skynet_stub
 			end
+			if name == "skynet.queue" then
+				return function() return function(fn, ...) return fn(...) end end
+			end
 			return require(name)
 		end,
 		MAIL = {
@@ -83,12 +102,13 @@ local function setup(opts)
 		},
 		TIME = {os_bj_sec = function() return clock.now end},
 		DATA_COMMON = {
-			ALLIANCE_POS = enum_of(load_conf("AlliancePos")),
-			ALLIANCE_JOIN_TYPE = enum_of(JOIN_TYPE),
-			CHAT_CHANNEL = enum_of(CHANNEL),
+			ALLIANCE_POS = dofile("game_common/server/enum/AlliancePosEnum.lua"),
+			ALLIANCE_JOIN_TYPE = JOIN_TYPE,
+			CHAT_CHANNEL = CHANNEL,
+			RANK_TYPE = dofile("game_common/server/enum/RankTypeEnum.lua"),
 			get_alliance_lv_conf = function(lv) return ALLIANCE_LV[lv] end,
-			get_alliance_join_type_conf = function(t) return JOIN_TYPE[t] end,
-			get_chat_channel_conf = function(c) return CHANNEL[c] end,
+			get_alliance_join_type_conf = function(t) return enum_members(JOIN_TYPE)[t] end,
+			get_chat_channel_conf = function(c) return enum_members(CHANNEL)[c] end,
 			get_chat_history_max = function() return opts.history_max or 100 end,
 			get_alliance_create_cost = function() return GLOBAL[10].value1 end,
 			get_alliance_name_max_len = function() return GLOBAL[11].value1 end,
@@ -104,19 +124,39 @@ local function setup(opts)
 			touch = orm.touch,
 		},
 		MONGO_SLAVE = {
-			COL = {ALLIANCE = "alliance_col", USER_INFO = "user_info_col"},
+			COL = {ALLIANCE = "alliance_col", USER_INFO = "user_info_col", CHAT = "chat_history_col"},
 			system_startup = function() end,
 			flush = function()
 				for _, doc in ipairs(orm.drain()) do
 					mongo.saved[doc.key] = doc.dat
 				end
 			end,
-			del_doc = function(_, key)
+			del_doc = function(col, key)
+				if col == "chat_history_col" then mongo.chat[key] = nil; return end
 				mongo.saved[key] = nil
 				mongo.deleted[key] = true
 			end,
 			common_load_tbl = function() return mongo.saved end,
-			common_load_single = function(_, key) return opts.db_users and opts.db_users[key] end,
+			common_load_single = function(col, key)
+				if col == "chat_history_col" then
+					mongo.chat_reads = mongo.chat_reads + 1
+					if opts.read_fail then error("read failed") end
+					return copy(mongo.chat[key])
+				end
+				return opts.db_users and opts.db_users[key]
+			end,
+			save_doc = function(_, key, doc) mongo.chat[key] = copy(doc) end,
+			flush_sync = function() if opts.write_fail then error("write failed") end end,
+			append_chat = function(key, msg)
+				if opts.write_fail then error("write failed") end
+				mongo.chat.sequence = mongo.chat.sequence + 1
+				msg.msgId = mongo.chat.sequence
+				local doc = mongo.chat[key] or {messages = {}}
+				doc.messages[#doc.messages + 1] = copy(msg)
+				while #doc.messages > (opts.history_max or 100) do table.remove(doc.messages, 1) end
+				mongo.chat[key] = doc
+				return copy(msg)
+			end,
 		},
 		EVENT = {register = function() end},
 		for_maker = {},
@@ -144,7 +184,7 @@ local function setup(opts)
 	shared.CHAT_MGR.__init__()
 	local U = shared.USER_MGR
 
-	local api = {shared = shared, sent = sent, clock = clock, mongo = mongo, costs = costs, mails = mails}
+	local api = {shared = shared, sent = sent, clock = clock, mongo = mongo, costs = costs, mails = mails, rank_scores = rank_scores}
 	-- fd 直接用 uid，方便看发给了谁
 	function api.online(uid, power)
 		U.on_user_login(uid, uid, "gate")
@@ -200,7 +240,7 @@ function A.create_costs_token()
 	create(t, 1, "甲")
 	local c = t.costs[1]
 	assert(#t.costs == 1 and c.uid == 1)
-	assert(c.cost.itemId == 4 and c.cost.count == 100 and c.cost.cost_type == t.shared.CONST.COST_TYPE.ITEM)
+	assert(c.cost.itemId == 100 and c.cost.count == 100 and c.cost.cost_type == t.shared.CONST.COST_TYPE.ITEM)
 end
 
 function A.create_fail_keeps_name_free()
@@ -434,6 +474,9 @@ function A.brief_refresh_updates_member()
 	t.req(1, "c2s_req_alliance_info", {allianceId = aid})
 	local brief = t.last(1, "s2c_req_alliance_info").info.brief
 	assert(brief.leaderName == "新名" and brief.power == 999)
+	assert(t.rank_scores[aid].type == 4 and t.rank_scores[aid].score == 999)
+	t.req(1, "c2s_dissolve_alliance")
+	assert(t.rank_scores[aid].score == 0, "解散联盟移出实力榜")
 end
 
 function A.chat_channels()
@@ -481,6 +524,68 @@ function A.chat_limits_and_history_trim()
 	t.req(1, "c2s_req_chat_list", {channel = 1})
 	local list = t.last(1, "s2c_req_chat_list").msgList
 	assert(#list == 3 and list[1].content == "4" and list[3].content == "6")
+end
+
+function A.chat_restart_retains_channels_and_private_access()
+	local t = setup()
+	for uid = 1, 3 do t.online(uid) end
+	local aid = create(t, 1)
+	t.req(2, "c2s_apply_alliance", {allianceId = aid})
+	t.req(1, "c2s_chat", {channel = 1, content = "world"})
+	t.clock.now = t.clock.now + 1
+	t.req(1, "c2s_chat", {channel = 2, content = "alliance"})
+	t.req(2, "c2s_chat", {channel = 3, targetId = 1, content = "private"})
+	local last_id = t.last(2, "s2c_chat").msg.msgId
+	t.shared.MONGO_SLAVE.flush()
+	local u = setup({saved = t.mongo.saved, chat_saved = t.mongo.chat})
+	for uid = 1, 3 do u.online(uid) end
+	assert(u.mongo.chat_reads == 0, "startup must not scan private conversations")
+	for channel, text in ipairs({"world", "alliance", "private"}) do
+		u.req(1, "c2s_req_chat_list", {channel = channel, targetId = 2})
+		assert(u.last(1, "s2c_req_chat_list").msgList[1].content == text)
+	end
+	u.req(3, "c2s_req_chat_list", {channel = 2})
+	assert(#u.last(3, "s2c_req_chat_list").msgList == 0)
+	u.req(3, "c2s_req_chat_list", {channel = 3, targetId = 1})
+	assert(#u.last(3, "s2c_req_chat_list").msgList == 0, "outsider cannot read another pair")
+	u.req(1, "c2s_chat", {channel = 1, content = "after restart"})
+	assert(u.last(1, "s2c_chat").msg.msgId > last_id)
+	u.req(1, "c2s_dissolve_alliance")
+	assert(not u.mongo.chat["alliance:" .. aid])
+end
+
+function A.chat_failed_write_is_not_acknowledged_or_broadcast()
+	local opts = {write_fail = true}
+	local t = setup(opts)
+	t.online(1); t.online(2)
+	t.req(1, "c2s_chat", {channel = 1, content = "retry later"})
+	assert(not t.last(1, "s2c_chat") and not t.last(2, "s2c_sync_chat"))
+	assert(#t.shared.CHAT_MGR.world_hist == 0)
+	assert(t.last(1, "s2c_tell_me"))
+	opts.write_fail = false
+	t.req(1, "c2s_chat", {channel = 1, content = "saved"})
+	assert(t.last(1, "s2c_chat").msg.content == "saved")
+end
+
+function A.chat_failed_read_does_not_poison_cache()
+	local opts = {read_fail = true, chat_saved = {sequence = 1,
+		world = {messages = {{msgId = 1, content = "existing"}}}}}
+	local t = setup(opts); t.online(1)
+	t.req(1, "c2s_req_chat_list", {channel = 1})
+	assert(not t.last(1, "s2c_req_chat_list"), "read failure must not appear as empty history")
+	opts.read_fail = false
+	t.req(1, "c2s_req_chat_list", {channel = 1})
+	assert(t.last(1, "s2c_req_chat_list").msgList[1].content == "existing")
+end
+
+function A.chat_hot_upgrade_saves_old_memory_once()
+	local t = setup(); t.online(1)
+	local chat = t.shared.CHAT_MGR
+	chat.world_hist = {{msgId = 99, content = "old process"}}
+	chat.__init__()
+	assert(t.mongo.chat.world.messages[1].content == "old process")
+	chat.__init__()
+	assert(#t.mongo.chat.world.messages == 1)
 end
 
 return A

@@ -77,7 +77,10 @@ function init()
 		expected_revision = nil
 	end
 	local manifest, map_res, terrain = world_map_package.load(directory, expected_revision, "../game_common/server/res")
-	local saved_users = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO)
+	local saved_users = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO, {
+		["dat._user_id"] = 1, ["dat._has_birth"] = 1,
+		["dat._birth_x"] = 1, ["dat._birth_y"] = 1,
+	})
 	local stored_map = MONGO_SLAVE.common_load_single("world_map_col", "static-map")
 	local legacy_revision = dofile("../config/map_legacy.lua")
 	local binding = world_map_package.binding(manifest, stored_map, next(saved_users) ~= nil, legacy_revision)

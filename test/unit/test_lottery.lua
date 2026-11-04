@@ -1,4 +1,4 @@
--- 点将：按道具消耗扣费，普通池/武将池按权重选池，奖励带普通弹窗
+-- 点将：按道具消耗扣费，奖励由响应列表展示，不重复推通用弹窗。
 
 local FILE = "logic/service/agent/module/lottery/lottery.lua"
 
@@ -69,15 +69,14 @@ end
 
 local T = {}
 
-function T.single_draw_shows_window()
+function T.single_draw_returns_rewards_without_duplicate_window()
 	local M, user, result = setup()
 	M.for_maker.c2s_user_lottery(9, {useLotteryTimes = 1})
 	local shown, sent = result()
 	assert(user.paid)
 	assert(user.checked[1].cost_type == 3 and user.checked[1].itemId == 103 and user.checked[1].count == 1)
 	assert(user.times == 4)
-	assert(shown[2][1] == 1, "普通弹窗")
-	assert(shown[1][1].item_id == 1)
+	assert(shown == nil, "点将响应展示奖励，不能再弹通用奖励窗")
 	assert(sent.useLotteryTimes == 1 and sent.lotteryTimes == 4)
 	assert(sent.rewardList[1].rewardType == 1 and sent.rewardList[1].itemId == 1 and sent.rewardList[1].itemCount == 500)
 end
@@ -107,8 +106,9 @@ function T.ten_draw_uses_hero_pool_and_half_cost()
 	local shown, sent = result()
 	assert(user.checked[1].count == 5)
 	assert(user.times == 13)
-	assert(#shown[1] == 10 and shown[1][1].reward_type == 3 and shown[1][1].item_id == 1001)
+	assert(shown == nil)
 	assert(sent.lotteryTimes == 13 and #sent.rewardList == 10 and sent.rewardList[1].rewardType == 3)
+	for _, reward in ipairs(sent.rewardList) do assert(reward.itemId == 1001 and reward.itemCount == 1) end
 end
 
 function T.converted_hero_keeps_draw_order()

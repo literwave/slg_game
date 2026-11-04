@@ -701,6 +701,15 @@ function monster_pos(entity_id)
 	return {x = e.x, y = e.y, cfg_id = e.cfg_id}
 end
 
+-- 仅本人部队或当前视野内的部队可补查；不向客户端泄漏全图行军路线。
+function get_march_path(user_id, entity_id)
+	local e = entities[entity_id]
+	if not e or e.hidden or not e.moving or e.entity_type ~= DATA_COMMON.ENTITY_TYPE.TROOP then return {} end
+	local f = focus_tbl[user_id]
+	if e.owner_id ~= user_id and (not f or not f.seen[entity_id] or not in_view(f, e)) then return {} end
+	return MARCH_PATH.to_pto(e.path)
+end
+
 function kill_monster(entity_id)
 	local e = entities[entity_id]
 	if not e or e.entity_type ~= DATA_COMMON.ENTITY_TYPE.MONSTER_GROUP then
@@ -907,7 +916,10 @@ function init()
 		place_group(group_id)
 	end
 	-- 资源地在 mapRes 快照里，按格子类型和等级读，不再随机铺到空地上
-	local users = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO)
+	local users = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO, {
+		["dat._user_id"] = 1, ["dat._name"] = 1, ["dat._has_birth"] = 1,
+		["dat._birth_x"] = 1, ["dat._birth_y"] = 1,
+	})
 	local city_level = {}
 	local main_bid = DATA_COMMON.get_main_city_bid()
 	for _, doc in pairs(MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_BUILD)) do

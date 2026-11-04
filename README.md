@@ -494,6 +494,23 @@ sh shell/bench.sh --relogin                # 顶号检查
 
 测试配置见 `config/test_node`。
 
+### 共享配置与协议
+
+客户端和服务端必须使用同一个 `game_common` 提交。需要更新到上游 `master` 时，先确认子模块没有未提交修改，再执行：
+
+```bash
+git -C game_common fetch origin master
+git -C game_common checkout --detach origin/master
+git -C game_common submodule update --init --recursive
+bash shell/test.sh
+```
+
+随后提交父仓库的子模块引用；其他环境用 `git submodule update --init --recursive` 还原该版本。这个命令本身不会追踪最新 `master`。
+
+枚举从 `game_common/server/enum` 加载，数据表从 `server/Res` 加载。排行榜数量读取 `Rank.RankMax`，资源地首次占领奖励读取 `ResLandFirst`，同一玩家的同类型、同等级只领取一次。石料使用道具 4、令牌使用道具 100；新角色直接按 `Global.Id=1` 发放初始道具。本版本按清档后的新数据结构运行，不迁移旧资源余额。
+
+本次还接入了其他玩家公开资料、可见行军路径查询，以及势力、击杀、城建、同盟四类排行榜。更新协议或 `orm/schema/*.td` 后需要正常关服、重新起服，不能只热更业务 Lua；上线前应备份数据并同时更新客户端配置。
+
 ### Cluster
 
 `config/clustername.lua` 里每个服一行，键是 `nodename` 拼上 `host_id`。当前只有 120 服：`nodename` 是 `game`，打开 `game120`，监听 `127.0.0.1:2528`。调用时用拼出来的名字：
@@ -540,6 +557,14 @@ doc._heroes[hero_type] = nil
 
 新建文档如果之后没有赋值，调用 `ORM.touch(doc)` 标一次脏。下线时 `ORM.unbind(col, key)`。新增可存盘类型：先写 `orm/schema/xxx.td`，再在 `orm/init.lua` 的 `SCHEMA_FILES` 中注册。
 
+普通属性变动在 50ms 窗口内合并，同一集合按最多 256 条、约 4MiB BSON 数据分批写入；同一文档的连续整包只保留最新一份，局部更新和删除仍保持原顺序。关键步骤和下线调用 `MONGO_SLAVE.flush_sync()` 等待数据库确认。写入失败会保留待写队列并重试，关服遇到失败会停在对应服务，恢复数据库后可再次执行 `shell/stop.sh`，不会继续关闭数据库后报告成功。待写队列仍在内存中，不能用强杀代替正常关服。
+
+`find_all` 会读完所有游标批次；读取异常向调用方报错，不伪装成空存档。`common_load_many` 使用 `_id` 索引批量查询。地图启动仅读取主城坐标、名字等所需玩家字段。
+
+世界、联盟和私聊的最近消息保存在 `chat_history_col`，每个会话按 `Global.Id=9` 保留条数，私聊按双方 uid 组成唯一会话键，复用 `_id` 索引。历史按需读取，数据库写入确认后才回成功和广播；消息编号使用持久化序列，重启不会从 1 开始。联盟解散时清理其聊天记录。此处保存的是近期聊天历史，不是无限期消息归档。
+
+验证：`sh shell/test.sh` 检查语法和单元测试；`sh shell/test_db.sh` 复用本机连接配置，在独立测试库验证多批游标、批量更新、写入失败和聊天重连恢复，结束后清理测试库。修改数据库服务入口或关服逻辑后需正常重启服务。
+
 ---
 
 ## 开发指南
@@ -584,6 +609,7 @@ doc._heroes[hero_type] = nil
 | `shell/hot_update.sh` | 热更 lua 文件，`-c` 同时重载配置表 |
 | `shell/runtest.sh` | 启动测试节点 |
 | `shell/test.sh` | lua / shell 语法检查和单元测试，不需要起服 |
+| `shell/test_db.sh` | 独立测试库中的真实 MongoDB 持久化集成测试 |
 | `shell/bench.sh` | 机器人压测，`--relogin` 做顶号检查；结果在 `log/bench_result.txt` |
 | `shell/start_db.sh` | 启动 MongoDB / Redis（`/usr/local` 模板路径，系统包安装可不用） |
 | `shell/stop_db.sh` | 停止 DB（同样依赖模板路径） |

@@ -19,19 +19,12 @@ local DATA_ACTIVITY = sharedata.query("Activity")
 local DATA_MONSTER_GROUP = sharedata.query("MonsterGroup")
 local DATA_MONSTER = sharedata.query("Monster")
 local DATA_SKILL = sharedata.query("Skill")
-local DATA_RANK_TYPE = sharedata.query("RankType")
-local DATA_CHAT_CHANNEL = sharedata.query("ChatChannel")
+local DATA_RANK = sharedata.query("Rank")
 local DATA_ALLIANCE_LV = sharedata.query("AllianceLv")
-local DATA_ALLIANCE_POS = sharedata.query("AlliancePos")
-local DATA_ALLIANCE_JOIN_TYPE = sharedata.query("AllianceJoinType")
-local DATA_ENTITY_TYPE = sharedata.query("EntityType")
 local DATA_TARGET_TYPE = sharedata.query("TargetType")
-local DATA_TROOP_STATE = sharedata.query("TroopState")
-local DATA_REPORT_TYPE = sharedata.query("ReportType")
 local DATA_MAIL = sharedata.query("Mail")
-local DATA_MAIL_KIND = sharedata.query("MailKind")
 local DATA_RES_LAND = sharedata.query("ResLand")
-local DATA_RES_LAND_TYPE = sharedata.query("ResLandType")
+local DATA_RES_LAND_FIRST = sharedata.query("ResLandFirst")
 -- local DATA_NAME_CN = sharedata.query("NameCn")
 
 -- local conf = {
@@ -40,27 +33,20 @@ local DATA_RES_LAND_TYPE = sharedata.query("ResLandType")
 -- 	end,
 -- }
 
--- 带 Enum 列的表转成 {[Enum] = Id}
-local function build_enum(data)
-	local ret = {}
-	for id, conf in pairs(data) do
-		ret[conf.Enum] = id
-	end
-	return ret
-end
-
--- 枚举直接取配置表，用 DATA_COMMON.XXX.ENUM，不要在加载时缓存成 local（重载配置会换新表）
+-- 枚举由 game_common 单独导出，不再依赖业务表的 Enum 列。
 local function init_enum()
-	ENTITY_TYPE = build_enum(DATA_ENTITY_TYPE)
-	TARGET_TYPE = build_enum(DATA_TARGET_TYPE)
-	TROOP_STATE = build_enum(DATA_TROOP_STATE)
-	REPORT_TYPE = build_enum(DATA_REPORT_TYPE)
-	RANK_TYPE = build_enum(DATA_RANK_TYPE)
-	CHAT_CHANNEL = build_enum(DATA_CHAT_CHANNEL)
-	ALLIANCE_POS = build_enum(DATA_ALLIANCE_POS)
-	ALLIANCE_JOIN_TYPE = build_enum(DATA_ALLIANCE_JOIN_TYPE)
-	MAIL_KIND = build_enum(DATA_MAIL_KIND)
-	RES_LAND_TYPE = build_enum(DATA_RES_LAND_TYPE)
+	ENTITY_TYPE = sharedata.query("EntityTypeEnum")
+	TARGET_TYPE = sharedata.query("TargetTypeEnum")
+	TROOP_STATE = sharedata.query("TroopStateEnum")
+	REPORT_TYPE = sharedata.query("ReportTypeEnum")
+	RANK_TYPE = sharedata.query("RankTypeEnum")
+	CHAT_CHANNEL = sharedata.query("ChatChannelEnum")
+	ALLIANCE_POS = sharedata.query("AlliancePosEnum")
+	ALLIANCE_JOIN_TYPE = sharedata.query("AllianceJoinTypeEnum")
+	MAIL_KIND = sharedata.query("MailKindEnum")
+	RES_LAND_TYPE = sharedata.query("ResLandTypeEnum")
+	SYSTEM_OPEN_TYPE = sharedata.query("SystemOpenEnum")
+	ERRCODE = sharedata.query("ErrcodeEnum")
 end
 
 -- 二次处理配置表的内容。放在 __init__ 里：热更 / 重载配置时会先恢复旧模块变量再调 __init__，这里才能重算
@@ -82,6 +68,12 @@ local function init_config_data()
 	for _, conf in pairs(DATA_HERO_LV) do
 		hero_max_level = math.max(hero_max_level, conf.Lv)
 	end
+	res_land_first_tbl = {}
+	for _, row in pairs(DATA_RES_LAND_FIRST) do
+		res_land_first_tbl[row.Type] = res_land_first_tbl[row.Type] or {}
+		assert(not res_land_first_tbl[row.Type][row.Level], "重复的资源地首占配置")
+		res_land_first_tbl[row.Type][row.Level] = row
+	end
 	-- [build_type] = { [lv] = conf }，build_max_level_tbl[build_type] = 配置里的最高等级
 	build_lv_tbl = {}
 	build_max_level_tbl = {}
@@ -94,9 +86,7 @@ local function init_config_data()
 end
 
 local function init_system_open_enum()
-	for system_id, conf in pairs(DATA_SYSTEM_OPEN) do
-		local enum_name = conf.Enum
-		local value = conf.Id or system_id
+	for enum_name, value in pairs(sharedata.query("SystemOpenEnum")) do
 		assert(_G[enum_name] == nil or _G[enum_name] == value, enum_name)
 		_G[enum_name] = value
 	end
@@ -324,11 +314,27 @@ function get_all_item_ids()
 end
 
 function get_rank_type_conf(rank_type)
-	return DATA_RANK_TYPE[rank_type]
+	return DATA_RANK[rank_type]
+end
+
+function get_rank_max(rank_type)
+	local conf = DATA_RANK[rank_type]
+	return conf and conf.RankMax or 0
+end
+
+function get_res_land_first_conf(land_type, level)
+	return res_land_first_tbl[land_type] and res_land_first_tbl[land_type][level]
+end
+
+local function has_enum_value(enum, value)
+	for _, id in pairs(enum) do
+		if id == value then return true end
+	end
+	return false
 end
 
 function get_chat_channel_conf(channel)
-	return DATA_CHAT_CHANNEL[channel]
+	return has_enum_value(CHAT_CHANNEL, channel)
 end
 
 -- 单频道（私聊按会话）保留的历史条数
@@ -341,11 +347,11 @@ function get_alliance_lv_conf(lv)
 end
 
 function get_alliance_pos_conf(pos)
-	return DATA_ALLIANCE_POS[pos]
+	return has_enum_value(ALLIANCE_POS, pos)
 end
 
 function get_alliance_join_type_conf(join_type)
-	return DATA_ALLIANCE_JOIN_TYPE[join_type]
+	return has_enum_value(ALLIANCE_JOIN_TYPE, join_type)
 end
 
 -- 创建联盟消耗的令牌数
@@ -374,7 +380,7 @@ function get_mail_conf(mail_id)
 end
 
 function get_mail_kind_conf(mail_kind)
-	return DATA_MAIL_KIND[mail_kind]
+	return has_enum_value(MAIL_KIND, mail_kind)
 end
 
 -- 单个邮件类型最多保留的条数

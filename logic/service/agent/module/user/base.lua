@@ -202,6 +202,7 @@ end
 
 function cls_user:on_logout()
 	self:settle_online(TIME.os_bj_sec())
+	self._data._offline_time = TIME.os_bj_sec()
 	self._online_since = nil
 end
 

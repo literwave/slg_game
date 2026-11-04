@@ -21,9 +21,8 @@ local function leave_gather(user, troop)
 	local gathered = math.floor(conf.GatherSpeed * sec / CONST.ONE_HOUR_SEC)
 	gathered = world_call("leave_res_land", entity_id, user_id, troop:get_troop_idx(), gathered) or gathered
 	if gathered > 0 then
-		local reward_type = conf.OutputItem == CONST.RES_TYPE_STONE and CONST.REWARD_TYPE_RES or CONST.REWARD_TYPE_ITEM
 		REWARD_MGR.reward_user_and_show(user_id, {
-			GLOBAL_FUNC.gen_reward_info(reward_type, conf.OutputItem, gathered),
+			GLOBAL_FUNC.gen_reward_info(CONST.REWARD_TYPE_ITEM, conf.OutputItem, gathered),
 		}, {CONST.FLOW_REASON.GATHER, info.cfg_id})
 	end
 end
@@ -191,6 +190,7 @@ function on_occupy_done(user_id, troop_idx, gather_end)
 	if not still_occupying(user_id, troop) then
 		return
 	end
+	reward_first_occupy(user, troop:get_target_id())
 	local now = TIME.os_bj_sec()
 	if gather_end and gather_end > now then
 		troop:set_gather(now, gather_end)
@@ -201,6 +201,20 @@ function on_occupy_done(user_id, troop_idx, gather_end)
 	if fd then
 		for_caller.s2c_sync_march(fd, {marchInfo = troop:get_march_pto()})
 	end
+end
+
+-- 首占在倒计时结束且归属仍有效时结算，按资源类型和等级去重。
+function reward_first_occupy(user, entity_id)
+	local info = world_call("res_land_info", entity_id)
+	if not info or info.owner_id ~= user:get_user_id() then return end
+	local land = DATA_COMMON.get_res_land_conf(info.cfg_id)
+	if not land then return end
+	local conf = DATA_COMMON.get_res_land_first_conf(land.Type, land.Level)
+	if not conf or not conf.Reward or #conf.Reward == 0 then return end
+	local key = land.Type * 1000 + land.Level
+	if user._data._land_first[key] then return end
+	user._data._land_first[key] = TIME.os_bj_sec()
+	REWARD_MGR.reward_user_and_show(user:get_user_id(), conf.Reward, {CONST.FLOW_REASON.BATTLE, info.cfg_id})
 end
 
 function on_gather_full(user_id, troop_idx, end_time)
@@ -409,5 +423,14 @@ function __init__()
 	for_maker.c2s_cancel_march = on_cancel_march
 	for_maker.c2s_req_march_list = on_req_march_list
 	for_maker.c2s_aoi_focus = on_aoi_focus
+	for_maker.c2s_req_march_path = function(fd, packet)
+		local user_id = USER_MGR.get_user_id_by_fd(fd)
+		local entity_id = math.tointeger(packet and packet.entityId)
+		if not user_id or not entity_id or entity_id <= 0 then return end
+		local path = world_call("get_march_path", user_id, entity_id) or {}
+		if USER_MGR.get_user_id_by_fd(fd) == user_id then
+			for_caller.s2c_req_march_path(fd, {entityId = entity_id, path = path})
+		end
+	end
 	EVENT.listen(CONST.EVENT.ON_USER_LOGIN)
 end

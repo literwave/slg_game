@@ -84,6 +84,22 @@ local function total_power(doc)
 	return sum
 end
 
+local function report_power(doc, removed)
+	local activity = skynet.localname(".activity")
+	if activity then
+		skynet.send(activity, "lua", "set_score", DATA_COMMON.RANK_TYPE.ALLIANCE_POWER,
+			doc._alliance_id, removed and 0 or total_power(doc), doc._name, 0)
+	end
+end
+
+local function sync_rank_on_start()
+	if not skynet.localname(".activity") then
+		skynet.timeout(100, sync_rank_on_start)
+		return
+	end
+	for _, doc in pairs(alliance_tbl) do report_power(doc) end
+end
+
 local function brief_pto(doc)
 	local leader = doc._members[doc._leader_id]
 	return {
@@ -155,6 +171,7 @@ local function sync_my(user_id)
 end
 
 local function sync_alliance(doc)
+	report_power(doc)
 	broadcast(doc, "s2c_sync_alliance", {info = info_pto(doc)})
 end
 
@@ -375,6 +392,7 @@ local function on_create_alliance(user_id, packet)
 	ORM.touch(doc)
 	index_alliance(doc)
 	tell_world(user_id, alliance_id)
+	report_power(doc)
 	clear_user_applies(user_id)
 	invite_tbl[user_id] = nil
 	USER_MGR.send(user_id, "s2c_create_alliance", {info = info_pto(doc)})
@@ -402,6 +420,7 @@ local function on_dissolve_alliance(user_id)
 		invites[alliance_id] = nil
 	end
 	alliance_tbl[alliance_id] = nil
+	report_power(doc, true)
 	name_tbl[doc._name] = nil
 	for _, uid in ipairs(members) do
 		user_alliance[uid] = nil
@@ -724,6 +743,7 @@ function on_brief_change(brief)
 		m._head_icon = brief.head_icon
 		m._level = brief.level
 		m._power = brief.power
+		report_power(doc)
 	end
 	for alliance_id in pairs(user_applies[user_id] or EMPTY_TABLE) do
 		local a = alliance_tbl[alliance_id]._applies[user_id]
@@ -773,4 +793,5 @@ function __init__()
 	for_maker.c2s_set_member_pos = on_set_member_pos
 	for_maker.c2s_transfer_leader = on_transfer_leader
 	EVENT.register(CONST.EVENT.ON_USER_LOGOUT)
+	skynet.timeout(0, sync_rank_on_start)
 end

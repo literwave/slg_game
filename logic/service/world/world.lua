@@ -4,6 +4,7 @@ require "skynet.manager"
 local CMD = {}
 
 function CMD.shutdown()
+	MONGO_SLAVE.flush_sync()
 	skynet.fork(skynet.exit)
 end
 
@@ -33,6 +34,10 @@ end
 
 function CMD.find_march_path(_, user_id, sx, sy, ex, ey)
 	return MAP_MGR.find_march_path(user_id, sx, sy, ex, ey)
+end
+
+function CMD.get_march_path(_, user_id, entity_id)
+	return AOI_MGR.get_march_path(user_id, entity_id)
 end
 
 function CMD.set_user_alliance(_, user_id, alliance_id)

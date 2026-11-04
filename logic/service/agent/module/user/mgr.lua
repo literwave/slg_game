@@ -71,7 +71,8 @@ function disconnect(fd, user_id)
 	user:on_logout()
 	-- 各模块在这里存盘解绑自己的数据，所以要在玩家对象释放前发
 	EVENT.fire(CONST.EVENT.ON_USER_LOGOUT, user_id, fd)
-	MONGO_SLAVE.flush()
+	-- 保存失败时不能释放玩家，让重登把未保存的新状态当成旧存档重新加载。
+	MONGO_SLAVE.flush_sync()
 	ORM.unbind(MONGO_SLAVE.COL.USER_INFO, user_id)
 	all_user_tbl[user_id] = nil
 	del_user_id_by_vfd(fd)
@@ -248,6 +249,65 @@ local function on_client_load_ok(fd)
 	for_caller.s2c_client_load_ok(fd, {})
 end
 
+-- 协议约定 0 只表示在线。旧存档可能尚无离线时间，不能因 Lua 的 0 为真而误报在线。
+local function public_offline_time(raw)
+	local time = tonumber(raw._offline_time) or 0
+	if time <= 0 then time = tonumber(raw._login_time) or 0 end
+	if time <= 0 then time = tonumber(raw._birth_time) or 1 end
+	return math.max(1, math.floor(time))
+end
+
+-- 在目标玩家所属的 agent 读取。离线查询只读原始快照，不创建或绑定玩家对象。
+function get_public_profile(user_id)
+	local user = get_user_by_id(user_id)
+	if user then
+		return {
+			uid = user_id, name = user:get_name(), headIcon = user:get_head_icon(),
+			sex = user:get_sex(), level = user:get_level(), power = user:get_power(),
+			cityLevel = user:get_city_level(), offlineTime = get_fd_by_user_id(user_id) and 0 or public_offline_time(user._data),
+		}
+	end
+	local raw = MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_INFO, user_id)
+	if not raw or not raw._user_id then return end
+	local heroes = MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_HERO, user_id) or {}
+	local builds = MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_BUILD, user_id) or {}
+	-- 数据库读取会让出协程；若此时玩家上线，重新取实时资料。
+	if get_user_by_id(user_id) then return get_public_profile(user_id) end
+	local power = 0
+	for key, hero in pairs(heroes._heroes or {}) do
+		local conf = DATA_COMMON.get_hero_info_by_type(hero._hero_type or tonumber(key))
+		if conf then
+			power = power + ((conf.Attack or 0) + (conf.Hp or 0) + (conf.Defense or 0) + (conf.Speed or 0) + (conf.Crit or 0)) * (hero._level or 0)
+		end
+	end
+	local bid = DATA_COMMON.get_main_city_bid()
+	local bag = builds._builds or {}
+	local city = bag[bid] or bag[tostring(bid)]
+	return {
+		uid = user_id, name = raw._name or "", headIcon = raw._head_icon or 0,
+		sex = raw._sex or 0, level = raw._level or 0, power = power,
+		cityLevel = city and city._level or 0, offlineTime = public_offline_time(raw),
+	}
+end
+
+local function on_req_other_user(fd, packet)
+	local requester = get_user_id_by_fd(fd)
+	local uid = math.tointeger(packet and packet.uid)
+	if not requester or not uid or uid <= 0 then return end
+	local agents = skynet.call(".gated", "lua", "get_agent_list")
+	if not agents or #agents == 0 then return end
+	-- 不锁目标玩家队列，避免两人同时互查时相互等待。
+	local profile = skynet.call(agents[uid % #agents + 1], "lua", "public_user_profile", uid)
+	if profile then
+		local alliance = skynet.call(".union", "lua", "public_user_alliance", uid)
+		profile.allianceId = alliance and alliance.id or 0
+		profile.allianceName = alliance and alliance.name or ""
+	end
+	if get_user_id_by_fd(fd) == requester then
+		for_caller.s2c_req_other_user(fd, profile or {uid = uid})
+	end
+end
+
 local function on_user_create(fd, packet)
 	local sex = packet.sex
 	local name = packet.name
@@ -381,12 +441,17 @@ local function on_change_head_icon(fd, packet)
 end
 
 function __init__()
+	-- 热更会再次注册协议；沿用已经启动的心跳检查，避免重复创建循环定时器。
+	local heart_beat_registered = rawget(for_maker, "c2s_heart_beat") ~= nil
 	for_maker.c2s_heart_beat = on_heart_beat
 	for_maker.c2s_user_base_info = on_user_baseinfo
 	for_maker.c2s_user_create = on_user_create
 	for_maker.c2s_move_city = on_move_city
 	for_maker.c2s_change_head_icon = on_change_head_icon
 	for_maker.c2s_client_load_ok = on_client_load_ok
+	for_maker.c2s_req_other_user = on_req_other_user
 	EVENT.register(CONST.EVENT.KICK_USER)
-	skynet.timeout(CONST.USER_HEART_BEAT_CHECK_INTERVAL * 100, check_heart_beat)
+	if not heart_beat_registered then
+		skynet.timeout(CONST.USER_HEART_BEAT_CHECK_INTERVAL * 100, check_heart_beat)
+	end
 end
