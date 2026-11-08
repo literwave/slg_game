@@ -107,15 +107,19 @@ function cls_troop:is_marching()
 end
 
 function cls_troop:calc_pos(now)
+	if self:get_march_state() == CONST.MARCH_STATE.ARRIVED then return self:get_end_pos() end
 	local march = self._data._march
 	return MARCH_PATH.pos_at(march._path, march._start_time, march._end_time, now)
 end
 
 function cls_troop:set_march(info)
 	local march = self._data._march
+	self._data._march_serial = self._data._march_serial + 1
 	march._state = info.state
 	march._target_type = info.target_type
 	march._target_id = info.target_id
+	self._data._siege_round = info.siege_round or 0
+	self._data._redeploy_round = info.redeploy_round or 0
 	march._path = info.path
 	march._start_time = info.start_time
 	march._end_time = info.end_time
@@ -129,6 +133,21 @@ end
 function cls_troop:set_arrived()
 	self._data._march._state = CONST.MARCH_STATE.ARRIVED
 	self:set_troop_state(DATA_COMMON.TROOP_STATE.STAY)
+end
+
+-- 攻城阶段保持出征流水号和原路径，计时只控制结算，不重新移动部队。
+function cls_troop:set_siege(start_time, end_time)
+    local march = self._data._march
+    march._state = CONST.MARCH_STATE.ARRIVED
+    march._start_time, march._end_time = start_time, end_time
+    self:set_troop_state(DATA_COMMON.TROOP_STATE.SIEGE)
+end
+
+-- 一轮战果落盘后才分配下一轮流水号；保持接敌点和出征目标。
+function cls_troop:next_siege_round(start_time, end_time, city_round)
+    self._data._march_serial = self._data._march_serial + 1
+    self._data._siege_round = city_round
+    self:set_siege(start_time, end_time)
 end
 
 -- 打赢后停在原地等占领倒计时。归属要到点才写入，这段时间部队状态仍是停留
@@ -171,6 +190,11 @@ end
 function cls_troop:get_march_info()
 	local march = self._data._march
 	return {
+		troop_state = self:get_troop_state(),
+		siege_round = self._data._siege_round,
+		redeploy_round = self._data._redeploy_round,
+		serial = self._data._march_serial,
+		state = march._state,
 		user_id = self:get_user_id(),
 		troop_idx = self:get_troop_idx(),
 		target_type = self:get_target_type(),
@@ -194,6 +218,7 @@ function cls_troop:get_march_pto()
 		startTime = march._start_time,
 		endTime = march._end_time,
 		state = self:get_march_state(),
+		troopState = self:get_troop_state(),
 		path = MARCH_PATH.to_pto(march._path),
 	}
 end
@@ -215,5 +240,6 @@ function cls_troop:get_pto_info()
 	return {
 		troopIdx = self:get_troop_idx(),
 		posMap = pos_map,
+		troopState = self:get_troop_state(),
 	}
 end

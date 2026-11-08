@@ -1,11 +1,6 @@
 -- 用真实 master 导表检查加载入口、枚举、公开查询和首占奖励。
 local T = {}
-local function indexed(rows)
-	if type(rows[1]) ~= "table" or rows[1].Id == nil then return rows end
-	local result = {}
-	for _, row in ipairs(rows) do result[row.Id] = row end
-	return result
-end
+local indexed = require("config_table").index_by_id
 
 local function data_env()
 	local tables = {}
@@ -41,7 +36,7 @@ function T.loader_references_only_existing_tables()
 	local cache = {}
 	local sky = {cache={mode=function()end},start=function(fn)fn()end,dispatch=function()end,register=function()end}
 	local env = setmetatable({
-		require=function(n) if n=="skynet" then return sky elseif n=="skynet.manager" then return {} end
+		require=function(n) if n=="skynet" then return sky elseif n=="skynet.manager" then return {} elseif n=="config_table" then return require(n) end
 			return {new=function(n,t)cache[n]=t end} end,
 		loadfile=function(p) return loadfile((p:gsub("^%.%./", ""))) end,
 		LOG={_debug=function()end},
@@ -76,8 +71,11 @@ function T.first_occupy_reward_is_once_per_type_and_level()
 	local info = {owner_id=7,cfg_id=401}
 	local env = setmetatable({require=function()return {localname=function()return ".world"end,call=function()return info end}end,
 		DATA_COMMON={get_res_land_conf=function()return {Type=4,Level=1}end,get_res_land_first_conf=function()return {Reward={{item_id=4,item_count=100}}}end},
-		TIME={os_bj_sec=function()return 100 end}, CONST={FLOW_REASON={BATTLE=10}},
-		REWARD_MGR={reward_user_and_show=function()sent=sent+1 end}}, {__index=_G})
+		TIME={os_bj_sec=function()return 100 end}, CONST={FLOW_REASON={BATTLE=10},REWARD_SHOW_TYPE={NONE=0}},
+		REWARD_MGR={reward_user_and_show=function(_, _, _, show_types)
+			assert(show_types and #show_types==1 and show_types[1]==0, "首占自动结算不弹窗")
+			sent=sent+1
+		end}}, {__index=_G})
 	assert(loadfile("logic/service/agent/module/march/mgr.lua", "t", env))()
 	local user={_data={_land_first={}},get_user_id=function()return 7 end}
 	env.reward_first_occupy(user,99); env.reward_first_occupy(user,99)

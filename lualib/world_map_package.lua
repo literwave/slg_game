@@ -76,7 +76,7 @@ function M.load(directory, expected_revision, config_directory)
     local terrain = read_table(directory .. "/terrain.lua")
     assert(resources.w == manifest.width and resources.h == manifest.height, "map size mismatch")
     assert(terrain.width == manifest.width and terrain.height == manifest.height, "terrain size mismatch")
-    return manifest, resources, terrain
+    return manifest, resources, terrain, read_table(directory .. "/campaign-map.lua")
 end
 
 function M.binding(manifest, stored, has_players, legacy_revision)

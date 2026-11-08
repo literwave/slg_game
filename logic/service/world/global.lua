@@ -23,4 +23,5 @@ ENTITY_MGR	= Import("../logic/service/world/module/entity/mgr.lua")
 ENCOUNTER_MGR	= Import("../logic/service/world/module/encounter/mgr.lua")
 AOI_MGR		= Import("../logic/service/world/module/aoi/mgr.lua")
 LAND_MGR	= Import("../logic/service/world/module/land/mgr.lua")
+CITY_MGR	= Import("../logic/service/world/module/city/mgr.lua")
 

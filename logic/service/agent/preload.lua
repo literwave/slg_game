@@ -17,6 +17,7 @@ local PROTO_FILE_LIST = {
 	"../game_common/pb/item.pb",
 	"../game_common/pb/systemopen.pb",
 	"../game_common/pb/world.pb",
+	"../game_common/pb/city.pb",
 	"../game_common/pb/task.pb",
 	"../game_common/pb/activity.pb",
 	"../game_common/pb/battle.pb",

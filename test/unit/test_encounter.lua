@@ -7,7 +7,7 @@ local function load_path()
 end
 
 local function load_encounter()
-	local env = setmetatable({MARCH_PATH = load_path()}, {__index = _G})
+	local env = setmetatable({MARCH_PATH = load_path(), DATA_COMMON = {TARGET_TYPE = dofile("game_common/server/enum/TargetTypeEnum.lua")}}, {__index = _G})
 	assert(loadfile("logic/service/world/module/encounter/mgr.lua", "t", env))()
 	return env
 end
@@ -32,6 +32,55 @@ local function line(x0, x1)
 end
 
 local T = {}
+
+function T.redeploy_does_not_start_or_join_encounters()
+    local E = load_encounter()
+    local camp = troop(1, 10, 2, 0)
+    E.index_at(camp, 2, 0)
+    local mover = troop(2, 20, 0, 0, line(0, 4), 0, 4)
+    mover.target_type = 6
+    E.index_at(mover, 0, 0)
+    local fights, stops = E.advance({mover}, 3)
+    assert(#fights == 0 and #stops == 0 and not mover.fighting and not camp.fighting)
+    E.index_at(mover, 2, 0)
+    assert(not E.touch(mover) and not E.touch(camp))
+end
+function T.return_city_never_fights_at_start_crossing_or_arrival()
+    local E = load_encounter()
+    local camp = troop(1, 10, 2, 0)
+    E.index_at(camp, 2, 0)
+    local mover = troop(2, 20, 2, 0, line(2, 6), 0, 4)
+    mover.target_type = 1
+    E.index_at(mover, 2, 0)
+    assert(not E.touch(mover) and not E.touch(camp), "return cannot attack or be attacked at departure")
+    E.MARCH_PATH.cells_crossed = function() error("return must skip collision scanning") end
+    local fights, stops = E.advance({mover}, 4)
+    assert(#fights == 0 and #stops == 0 and mover.moving and not camp.fighting)
+    E.index_at(camp, 6, 0); E.index_at(mover, 6, 0)
+    assert(not E.touch(mover) and not E.touch(camp), "return cannot fight at arrival")
+end
+
+function T.return_city_can_pass_an_enemy_in_the_opposite_direction()
+    local E = load_encounter()
+    local home = troop(1, 10, 0, 0, line(0, 4), 0, 4)
+    home.target_type = 1
+    local enemy = troop(2, 20, 4, 0, line(4, 0), 0, 4)
+    E.index_at(home, 0, 0); E.index_at(enemy, 4, 0)
+    local fights, stops = E.advance({home, enemy}, 4)
+    assert(#fights == 0 and #stops == 0 and home.moving and enemy.moving)
+    assert(not home.fighting and not enemy.fighting)
+end
+
+function T.return_order_removes_previous_encounter_index()
+    local E = load_encounter()
+    local home = troop(1, 10, 2, 0)
+    E.index_at(home, 2, 0)
+    home.target_type = 1
+    E.index_at(home, 2, 0)
+    local enemy = troop(2, 20, 2, 0)
+    E.index_at(enemy, 2, 0)
+    assert(not E.touch(enemy) and not E.touch(home))
+end
 
 function T.meet_stationary()
 	local E = load_encounter()

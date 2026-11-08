@@ -5,21 +5,7 @@ require "skynet.manager"
 skynet.cache.mode("OFF")
 local CMD = {}
 
--- 星图导出的表是 { {Id=...}, ... }，业务按 Id 取值，加载时转成 [Id] = row。
--- 不是这种形状的表（例如内城布局）原样放进 sharedata。
-local function index_by_id(data)
-	local first = data[1]
-	if type(first) ~= "table" or first.Id == nil then
-		return data
-	end
-	local indexed = {}
-	for _, row in ipairs(data) do
-		if type(row) == "table" and row.Id ~= nil then
-			indexed[row.Id] = row
-		end
-	end
-	return indexed
-end
+local config_table = require "config_table"
 
 local function load_config(path)
 	local chunk, err = loadfile(path)
@@ -28,7 +14,7 @@ local function load_config(path)
 	end
 	local data = chunk()
 	assert(type(data) == "table", "config must return a table: " .. path)
-	return index_by_id(data)
+	return config_table.index_by_id(data)
 end
 
 -- 这里先这样手动加载数据，后续优化成遍历dir目录下的文件，然后new
@@ -57,6 +43,8 @@ DATA_FILE_LIST = {
 	"../game_common/server/res/Mail.lua",
 	"../game_common/server/res/ResLand.lua",
 	"../game_common/server/res/ResLandFirst.lua",
+	"../game_common/server/res/City.lua",
+	"../game_common/server/enum/CityTypeEnum.lua",
 	"../game_common/server/enum/EntityTypeEnum.lua",
 	"../game_common/server/enum/TargetTypeEnum.lua",
 	"../game_common/server/enum/TroopStateEnum.lua",
@@ -83,6 +71,7 @@ local function read_all()
 		assert(filename, "bad config path: " .. tostring(file))
 		ret[filename] = load_config(file)
 	end
+	config_table.validate_city_guards(ret)
 	return ret
 end
 

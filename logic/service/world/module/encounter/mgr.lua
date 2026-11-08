@@ -4,6 +4,12 @@
 
 local CELL = 1024
 
+local function bypass_encounter(e)
+    local types = DATA_COMMON.TARGET_TYPE
+    return types and e.target_type and
+        (e.target_type == types.RETURN_CITY or e.target_type == types.REDEPLOY)
+end
+
 -- 同一时刻先进入再离开，对向穿过格子边界时也能撞上
 local EV = {
 	ENTER = 1,
@@ -106,6 +112,8 @@ function index_at(e, x, y)
 		end
 		where[e.id] = nil
 	end
+    -- 回城、调动全程不参加同格遭遇；位置仍由 AOI 正常推进和广播。
+    if bypass_encounter(e) then return end
 	local k = cell_key(x, y)
 	local bucket = cells[k]
 	if not bucket then
@@ -171,6 +179,7 @@ end
 
 -- 这一格里另一个玩家。刚在这格打输的先走开，不在原地再打一次。同一格多个时取 id 小的
 function foe_of(e)
+    if bypass_encounter(e) then return end
 	local k = where[e.id]
 	if not k or flee[troop_key(e)] == k then
 		return
@@ -181,7 +190,7 @@ function foe_of(e)
 	end
 	local foe
 	for _, other in pairs(bucket) do
-		if hostile(e, other) and (not foe or other.id < foe.id) then
+		if not bypass_encounter(other) and hostile(e, other) and (not foe or other.id < foe.id) then
 			foe = other
 		end
 	end
@@ -252,7 +261,7 @@ end
 function advance(list, now)
 	local events = {}
 	for _, e in ipairs(list) do
-		if e.moving and not e.fighting and not e.waiting and e.path and e.start_time and e.end_time then
+		if not bypass_encounter(e) and e.moving and not e.fighting and not e.waiting and e.path and e.start_time and e.end_time then
 			local from = e.scan_time or e.start_time
 			if now > from then
 				local crossed = MARCH_PATH.cells_crossed(e.path, e.start_time, e.end_time, from, now)

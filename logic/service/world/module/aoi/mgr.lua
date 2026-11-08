@@ -1,13 +1,16 @@
 local skynet = require "skynet"
 
-local entities = {}
-local focus_tbl = {}
+-- 世界实体与视野索引必须一起保留：热更只替换函数，不能清空正在行军的部队。
+-- 否则客户端走到了终点，而世界帧已找不到实体，永远不会发送到达通知。
+runtime = runtime or {entities = {}, focus_tbl = {}, entity_buckets = {}, focus_buckets = {}}
+local entities = runtime.entities
+local focus_tbl = runtime.focus_tbl
 -- 桶边长等于视野半径。距离不超过半径时，横竖最多隔一个桶，查周围 3×3 即可
 local BUCKET = CONST.AOI_RADIUS
 local BUCKET_KEY = 1024
 local RADIUS2 = CONST.AOI_RADIUS * CONST.AOI_RADIUS
-local entity_buckets = {}
-local focus_buckets = {}
+local entity_buckets = runtime.entity_buckets
+local focus_buckets = runtime.focus_buckets
 -- 这一拍里同一个人的进出合并成一条 aoi_push。帧外的状态变化马上发
 local batching = false
 local pending
@@ -84,7 +87,15 @@ local function entity_pto(e)
 		ownerId = e.owner_id or 0,
 		cfgId = e.cfg_id or 0,
 	}
-	if e.moving then
+    if e.entity_type == DATA_COMMON.ENTITY_TYPE.TROOP then
+        pto.troopIdx = e.troop_idx
+        pto.troopState = e.troop_state or (e.moving and DATA_COMMON.TROOP_STATE.MARCH or DATA_COMMON.TROOP_STATE.STAY)
+        pto.targetId = e.deployed_city or e.siege_target or 0
+        pto.targetPos = e.siege_pos
+    end
+    if e.troop_state == DATA_COMMON.TROOP_STATE.SIEGE then
+        pto.startTime, pto.endTime = e.start_time, e.end_time
+	elseif e.moving then
 		pto.path = MARCH_PATH.to_pto(e.path)
 		pto.startTime = e.start_time
 		pto.endTime = e.end_time
@@ -92,9 +103,10 @@ local function entity_pto(e)
 		pto.startTime = e.occupy_start
 		pto.endTime = e.occupy_end
 	end
-	if e.entity_type == DATA_COMMON.ENTITY_TYPE.CITY then
+	if e.entity_type == DATA_COMMON.ENTITY_TYPE.CITY or e.entity_type == DATA_COMMON.ENTITY_TYPE.ALLIANCE_CITY then
 		pto.name = e.name
 		pto.level = e.level
+		pto.allianceId = e.alliance_id or 0
 	end
 	return pto
 end
@@ -366,6 +378,22 @@ local function place_group(group_id)
 end
 
 -- 已被占领的地块才进视野。中立地没有实体
+function upsert_alliance_city(info)
+	local e = entities[info.entityId] or {id = info.entityId,
+		entity_type = DATA_COMMON.ENTITY_TYPE.ALLIANCE_CITY, owner_id = 0}
+	entities[e.id] = e
+	e.cfg_id, e.level = info.cityType * 100 + info.level, info.level
+	e.x, e.y = info.pos.x, info.pos.y
+	e.name, e.alliance_id = info.allianceName, info.allianceId
+	refresh_entity(e)
+end
+
+function city_watchers(id)
+	local out = {}
+	for uid in pairs(entities[id] and entities[id].watchers or {}) do out[uid] = true end
+	return out
+end
+
 function upsert_land(info)
 	local e = entities[info.id]
 	if not e then
@@ -616,6 +644,8 @@ function start_march(info)
 		user_id = info.user_id,
 		troop_idx = info.troop_idx,
 		target_type = info.target_type,
+		march_serial = info.serial,
+		troop_state = DATA_COMMON.TROOP_STATE.MARCH,
 		moving = true,
 		path = info.path,
 		start_time = info.start_time,
@@ -638,11 +668,35 @@ function start_march(info)
 	return true
 end
 
+-- 攻城保持真实城外落脚点，退出同格遭遇索引，攻城状态及目标广播给视野内玩家。
+function siege_troop(info, target_pos)
+    local x, y = MARCH_PATH.last_pos(info.path)
+    if not x or not target_pos then return false end
+    local id = CONST.troop_entity_id(info.user_id, info.troop_idx)
+    local e = entities[id] or {id = id, entity_type = DATA_COMMON.ENTITY_TYPE.TROOP,
+        owner_id = info.user_id, cfg_id = 0, user_id = info.user_id, troop_idx = info.troop_idx}
+    entities[id] = e
+    ENCOUNTER_MGR.unindex(e)
+    ENCOUNTER_MGR.clear_flee(e)
+    e.moving, e.hidden, e.path = false, false, nil
+    e.x, e.y = x, y
+    e.troop_state = DATA_COMMON.TROOP_STATE.SIEGE
+    e.march_serial, e.deployed_city = info.serial or e.march_serial, nil
+    e.siege_target, e.siege_pos = info.target_id, target_pos
+    e.start_time, e.end_time = info.start_time, info.end_time
+    refresh_entity(e)
+    return true
+end
+
 -- 停在城外的部队留在到达点上。回到主城的不进这里，主城本身就是那个实体
-function park_troop(user_id, troop_idx, x, y)
+function park_troop(user_id, troop_idx, x, y, arrival_serial, city_id)
+	city_id = city_id or (arrival_serial and CITY_MGR and CITY_MGR.deployed_city
+        and CITY_MGR.deployed_city(user_id, troop_idx, arrival_serial))
 	local id = CONST.troop_entity_id(user_id, troop_idx)
 	local e = entities[id]
-	if e and e.moving then
+	if e and arrival_serial and e.march_serial and e.march_serial ~= arrival_serial
+        and (not city_id or e.march_serial > arrival_serial) then return end
+	if e and e.moving and not arrival_serial then
 		return
 	end
 	if not e then
@@ -658,8 +712,12 @@ function park_troop(user_id, troop_idx, x, y)
 	end
 	ENCOUNTER_MGR.unindex(e)
 	ENCOUNTER_MGR.clear_flee(e)
-	e.moving = false
+	e.moving, e.hidden = false, false
 	e.path = nil
+	e.troop_state = DATA_COMMON.TROOP_STATE.STAY
+	e.march_serial = arrival_serial or e.march_serial
+	e.deployed_city = city_id
+	e.siege_target, e.siege_pos = nil, nil
 	e.start_time = nil
 	e.end_time = nil
 	e.x = x
@@ -892,12 +950,18 @@ local function restore_marches()
 							user_id = troop._user_id,
 							troop_idx = troop._troop_idx,
 							target_type = march._target_type,
+							serial = troop._march_serial,
 							target_id = march._target_id,
 							path = march._path or {},
 							start_time = march._start_time,
 							end_time = march._end_time,
 						})
 					end
+                elseif march._state == CONST.MARCH_STATE.ARRIVED and (march._target_type == DATA_COMMON.TARGET_TYPE.ATTACK_CITY
+                    or march._target_type == DATA_COMMON.TARGET_TYPE.REDEPLOY) then
+                    -- 包括攻城阶段和战后返程失败；即便玩家离线，也恢复同一流水号的结算。
+                    local agent = agent_of(troop._user_id)
+                    if agent then skynet.send(agent, "lua", "march_arrive", troop._user_id, troop._troop_idx, march._end_time) end
 				elseif march._state == CONST.MARCH_STATE.ARRIVED and troop_has_hero(troop) then
 					local tail = march._path and march._path[#march._path]
 					local occupy_stay = march._target_type == DATA_COMMON.TARGET_TYPE.OCCUPY_RES_LAND
@@ -944,6 +1008,7 @@ function init()
 	ENCOUNTER_MGR.load_alliances()
 	load_agent_list()
 	LAND_MGR.init()
+	CITY_MGR.init()
 	restore_marches()
 	skynet.timeout(1, tick)
 end

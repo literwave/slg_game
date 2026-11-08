@@ -3,9 +3,10 @@
 
 return {
     ["schemaVersion"] = 2,
-    ["mapRevision"] = "635e6e505d56efae39e63c369743e8e4397d17d70b035ab58e83fc781d799e72",
+    ["mapRevision"] = "1c8ed4a2ba578b508fb3b83bff95e3d575ca453d59330258a14ea54413150d5e",
     ["width"] = 1000,
     ["height"] = 1000,
+    ["topologyVersion"] = 2,
     ["cellIdFormula"] = "y * 1000 + x",
     ["listAccess"] = "list[cellId][1]=type, list[cellId][2]=level",
     ["fixedBirthResourceCount"] = 6069,
@@ -15,8 +16,8 @@ return {
     ["fixedInnerResourceCount"] = 658,
     ["resourceLayoutVersion"] = 3,
     ["files"] = {
-        ["campaign-map.lua"] = "0aa938f7e2cf75ae015fea2d85a1b8f74c64bd367d9f284b7b8c7a11b43ada3c",
-        ["mapRes_0.lua"] = "868856090e417ef3d80ee891fe172520b49765c8b39077bcf22deed98a69056b",
-        ["terrain.lua"] = "2a3026164b45cebf0776419e4e90b1f89658a329878716e314ab8b4f3322a689"
+        ["campaign-map.lua"] = "fa544536a0ecaea89fd27ecfb501137426935f4e4ff14be51f7cad6a199da309",
+        ["mapRes_0.lua"] = "eeed8113f9b7b08794e842a027786a533878c1607ec88e61d7d69cd86fc95ccd",
+        ["terrain.lua"] = "c2e2c39fa833b36e710d9422af2a5784d969b999d9790906dced429c024fde8d"
     }
 }

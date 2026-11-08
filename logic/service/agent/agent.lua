@@ -184,6 +184,13 @@ function CMD.aoi_push(user_id, pack)
 	MARCH_MGR.on_aoi_push(fd, pack)
 end
 
+function CMD.city_push(user_id, pto_name, packet)
+	local fd = USER_MGR.get_fd_by_user_id(user_id)
+	if fd and (pto_name == "s2c_sync_city" or pto_name == "s2c_city_occupy") then
+		for_caller[pto_name](fd, packet)
+	end
+end
+
 function CMD.shutdown()
 	is_closing = true
 	local online = {}

@@ -26,11 +26,14 @@ mail_data {
 }
 
 mail_bag <number, mail_data>
+mail_source_rounds <string, number>
 
 user_mail_doc {
     _mails mail_bag
     _next_uid number
     _fetch_idx number
+    _source_rounds mail_source_rounds
+    _source_mail_ids mail_source_rounds
 }
 
 svr_mail {

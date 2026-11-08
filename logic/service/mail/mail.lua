@@ -31,6 +31,10 @@ function CMD.send_user_mail(user_id, mail_id, detail_list, reward_list)
 	MAIL_MGR.send_user_mail(user_id, mail_id, detail_list, reward_list)
 end
 
+function CMD.send_user_mail_once(user_id, source, round, mail_id, details, rewards)
+	return MAIL_MGR.send_user_mail_once(user_id, source, round, mail_id, details, rewards)
+end
+
 function CMD.send_group_mail(user_id_list, mail_id, detail_list, reward_list)
 	MAIL_MGR.send_group_mail(user_id_list, mail_id, detail_list, reward_list)
 end

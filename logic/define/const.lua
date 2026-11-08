@@ -127,6 +127,7 @@ ENTITY_ID = {
 	TROOP = 2000000000000000,
 	CITY = 3000000000000000,
 	RES_LAND = 4000000000000000,
+	ALLIANCE_CITY = 5000000000000000,
 }
 
 function city_entity_id(user_id)
@@ -267,6 +268,7 @@ SKILL_EFFECT = {
 }
 
 -- 配置里没有的数值先放这里
+CITY_SIEGE_SECONDS = 5		-- 到达后的攻城交战阶段，落盘后计时，到期才结算一队守军
 BATTLE_MAX_ROUND = 20
 BATTLE_DAMAGE_RATE = 0.3		-- 伤害 = 带兵 * 伤害率 * 攻/(攻+防) * 这个系数
 BATTLE_CRIT_RATE = 150			-- 暴击伤害 %

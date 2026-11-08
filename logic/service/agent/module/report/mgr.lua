@@ -93,6 +93,11 @@ end
 -- report 是 report_data 的字段（不含 _report_id），返回存好的战报
 function add_report(user_id, report)
 	local doc = get_doc(user_id)
+	if report._source_key and report._source_key ~= "" then
+		for _, saved in pairs(doc._reports) do
+			if saved._source_key == report._source_key then return saved end
+		end
+	end
 	local report_id = doc._next_id + 1
 	doc._next_id = report_id
 	report._report_id = report_id

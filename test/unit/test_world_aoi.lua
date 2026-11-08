@@ -30,10 +30,11 @@ local function load_aoi()
 	local prev_skynet = package.loaded.skynet
 	package.loaded.skynet = skynet
 	local env = setmetatable({
+		require = function(name) if name == 'skynet' then return skynet end return require(name) end,
 		agent_list = {"agent"},
 		CONST = load_env("logic/define/const.lua"),
 		MARCH_PATH = load_env("common/march_path.lua"),
-		DATA_COMMON = {ENTITY_TYPE = {CITY = 1, TROOP = 2}},
+		DATA_COMMON = {TROOP_STATE = {MARCH=1, STAY=2, SIEGE=4}, ENTITY_TYPE = {CITY = 1, TROOP = 2, ALLIANCE_CITY = 5}},
 		TIME = {now = function() return 0 end},
 		ENCOUNTER_MGR = {
 			unindex = noop,
@@ -214,6 +215,50 @@ function T.stop_and_reroute_update()
 	assert(again[1].pack.update[1].endTime == 2)
 end
 
+function T.hot_reload_preserves_march_arrival_and_existing_viewers()
+	clear_sends()
+	local A = load_aoi()
+	A.focus(8, 0, 0)
+	A.start_march({user_id=1, troop_idx=1, serial=17, target_type=5,
+		path=line(0, 4), start_time=0, end_time=10})
+	A.step(4)
+	clear_sends()
+	-- 和热更相同，在原模块环境里重新执行文件，保留已经排队的世界帧。
+	assert(loadfile('logic/service/world/module/aoi/mgr.lua', 't', A))()
+	local id = A.CONST.troop_entity_id(1, 1)
+	assert(#A.get_march_path(1, id) == 2, 'hot reload must preserve authoritative march')
+	local view = A.focus(8, 0, 0)
+	assert(#view.enter == 0 and #view.leave == 0, 'existing viewer must not lose its seen set')
+	A.step(10)
+	local arrivals = 0
+	for _, packet in ipairs(sends) do
+		if packet.cmd == 'march_arrive' then arrivals = arrivals + 1 end
+	end
+	assert(arrivals == 1, 'march must still notify agent on arrival after hot reload')
+	local updates = aoi_pushes()
+	assert(#updates == 1 and #updates[1].pack.update == 1, 'existing watcher receives stop update')
+	assert(updates[1].pack.update[1].entityId == id and updates[1].pack.update[1].path == nil)
+	clear_sends()
+	A.step(11)
+	assert(#sends == 0, 'completed march must not repeat arrival')
+end
+
+function T.hot_reload_preserves_stationary_entities_and_spatial_buckets()
+	clear_sends()
+	local A = load_aoi()
+	A.upsert_city(1, 2, 0, {name='主城', level=1})
+	A.park_troop(1, 1, 3, 0)
+	local before = A.focus(8, 0, 0)
+	assert(#before.enter == 2)
+	assert(loadfile('logic/service/world/module/aoi/mgr.lua', 't', A))()
+	assert(#A.focus(9, 0, 0).enter == 2, 'new viewer must still find both entities by bucket')
+	clear_sends()
+	A.upsert_city(1, 2, 0, {name='主城', level=2})
+	local updates = aoi_pushes()
+	assert(#updates == 2, 'both old and new viewers still receive updates')
+	for _, packet in ipairs(updates) do assert(#packet.pack.update == 1 and #packet.pack.enter == 0) end
+end
+
 function T.step_error_still_flushes()
 	local A = load_aoi()
 	A.focus(8, 0, 0)
@@ -248,6 +293,59 @@ function T.march_path_only_owned_or_visible_and_keeps_float()
 	A.hide_troop(1, 1)
 	assert(#A.get_march_path(1, id) == 0)
 	assert(#A.get_march_path(1, 999999) == 0)
+end
+
+function T.alliance_city_updates_owner_and_visible_audience()
+	local A = load_aoi()
+	local id = 5000000000000001
+	local info = {entityId = id, cityType = 3, level = 8, pos = {x = 0, y = 0}, allianceId = 0, allianceName = ""}
+	A.upsert_alliance_city(info)
+	local view = A.focus(8, 0, 0)
+	assert(#view.enter == 1 and view.enter[1].entityType == 5 and view.enter[1].cfgId == 308)
+	assert(A.city_watchers(id)[8])
+	clear_sends()
+	info.allianceId, info.allianceName = 77, "山河"
+	A.upsert_alliance_city(info)
+	local update = aoi_pushes()[1].pack.update[1]
+	assert(update.ownerId == 0 and update.allianceId == 77 and update.name == "山河")
+	A.focus(8, 900, 900)
+	assert(not A.city_watchers(id)[8])
+	clear_sends()
+end
+
+function T.siege_broadcasts_stationary_phase_and_return_clears_it()
+    local env=load_aoi()
+    local id=env.CONST.troop_entity_id(1,1)
+    env.focus(2,8,0)
+    assert(env.siege_troop({user_id=1,troop_idx=1,target_id=501,path=line(0,8),start_time=10,end_time=15},{x=10,y=0}))
+    local pack=env.focus(3,8,0)
+    local troop
+    for _, e in ipairs(pack.enter) do if e.entityId==id then troop=e end end
+    assert(troop and troop.troopState==4 and troop.targetId==501 and troop.targetPos.x==10)
+    assert(troop.path==nil and troop.startTime==10 and troop.endTime==15 and troop.pos.x==8)
+    env.start_march({user_id=1,troop_idx=1,target_type=1,path=line(8,0),start_time=15,end_time=23})
+    pack=env.focus(4,8,0)
+    for _, e in ipairs(pack.enter) do if e.entityId==id then troop=e end end
+    assert(troop.troopState==1 and troop.targetId==0 and troop.targetPos==nil and troop.path)
+end
+
+function T.captured_deployment_updates_serial_and_publishes_city_without_hiding_aoi()
+    clear_sends()
+    local env=load_aoi()
+    local id=env.CONST.troop_entity_id(1,1)
+    assert(env.siege_troop({user_id=1,troop_idx=1,serial=4,target_id=501,path=line(0,8),start_time=10,end_time=15},{x=10,y=0}))
+    env.CITY_MGR={deployed_city=function(uid,idx,seq) return uid==1 and idx==1 and seq==5 and 501 or nil end}
+    env.park_troop(1,1,10,0,5)
+    local function snapshot(watcher)
+        for _,e in ipairs(env.focus(watcher,10,0).enter) do if e.entityId==id then return e end end
+    end
+    local e=snapshot(8)
+    assert(e and e.troopState==2 and e.targetId==501 and e.pos.x==10 and not e.path)
+    env.start_march({user_id=1,troop_idx=1,serial=6,target_type=1,path=line(10,0),start_time=15,end_time=25})
+    env.park_troop(1,1,10,0,5)
+    e=snapshot(9)
+    assert(e.troopState==1 and e.targetId==0 and e.path, "旧入城通知不能覆盖已经出城的新行军")
+    clear_sends()
 end
 
 return T

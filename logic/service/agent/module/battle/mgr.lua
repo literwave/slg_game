@@ -145,7 +145,7 @@ local function fight_group(user, troop, ctx)
 	local given
 	local reward_list = res.result == CONST.BATTLE_RESULT.WIN and ctx.on_win()
 	if reward_list then
-		-- 客户端 battle_result 不弹窗，必须走 s2c_show_reward
+		-- 只有显式返回奖励的战斗类型才发奖，并将实际所得写入战报。
 		given = REWARD_MGR.reward_user_and_show(user_id, reward_list, {CONST.FLOW_REASON.BATTLE, ctx.target_id})
 		for _, rw in ipairs(given) do
 			rewards[#rewards + 1] = {_reward_type = rw.reward_type, _item_id = rw.item_id, _item_count = rw.item_count}
@@ -190,6 +190,65 @@ local function fight_group(user, troop, ctx)
 end
 
 -- 部队到达野怪：打一场，赢了才击杀并发奖。部队状态已置为到达，回城由调用方处理
+-- 攻城回执保存在 world。重试用原战前快照计算绝对兵力，不能按当前兵力再扣一次。
+function attack_city(user, troop)
+	local uid, id = user:get_user_id(), troop:get_target_id()
+	local seq = troop._data._march_serial
+	-- 先保存出征流水号，world 已结算而 agent 断开时仍能取回同一结果。
+	MONGO_SLAVE.flush_sync()
+	local receipt, err = MARCH_MGR.world_call("attack_city", id, {
+		uid = uid, troop_idx = troop:get_troop_idx(), seq = seq, city_round = troop._data._siege_round or 0,
+		name = user:get_name(), side = troop_side(user, troop),
+	})
+	if not receipt then
+		if err ~= "不能攻打本盟城池" then USER_MGR.tell_me(uid, err or "城池暂不可攻打") end
+		return
+	end
+	if receipt.phase == "wall" then
+        troop._data._siege_city, troop._data._siege_seq = id, seq
+        MONGO_SLAVE.flush_sync()
+        return receipt
+    end
+	local res, atk, def = receipt.result, receipt.atk, receipt.def
+	local atk_after, def_after = {}, {}
+	for _, unit in ipairs(atk.units) do
+		local left = res.atk_left[unit.pos] or res.atk_left[tostring(unit.pos)] or 0
+		local lost = math.max(0, unit.soldier - left)
+		local wounded = math.floor(lost * CONST.BATTLE_HURT_RATE / 100)
+		atk_after[unit.pos] = {count = unit.count - lost + wounded, hurt = unit.hurt + wounded}
+	end
+	for _, unit in ipairs(def.units) do
+		def_after[unit.pos] = {count = res.def_left[unit.pos] or res.def_left[tostring(unit.pos)] or 0, hurt = 0}
+	end
+	local report = REPORT_MGR.add_report(uid, {
+		_source_key = "city:" .. id .. ":" .. troop:get_troop_idx() .. ":" .. seq,
+		_report_type = DATA_COMMON.REPORT_TYPE.ATTACK_CITY,
+		_target_type = DATA_COMMON.TARGET_TYPE.ATTACK_CITY, _target_id = id,
+		_result = res.result, _time = receipt.time, _is_read = false,
+		_x = receipt.x, _y = receipt.y, _atk_side = report_side(atk, atk_after),
+		_def_side = report_side(def, def_after), _rewards = {},
+		_max_round = res.max_round, _actions = report_actions(res.actions),
+	})
+	-- 战报先落盘再结束行军；中途失败仍可按来源键取回原战报。
+	MONGO_SLAVE.flush_sync()
+	for _, unit in ipairs(atk.units) do
+		local after = atk_after[unit.pos]
+		troop:set_pos(unit.pos, unit.cfg_id, after.count, after.hurt)
+	end
+	troop._data._siege_city, troop._data._siege_seq = id, seq
+	MONGO_SLAVE.flush_sync()
+	local fd = USER_MGR.get_fd_by_user_id(uid)
+	if fd then
+		for_caller.s2c_sync_troop(fd, {troopInfo = troop:get_pto_info()})
+		for_caller.s2c_battle_start(fd, {battleId = report._report_id, reportType = report._report_type,
+			targetType = report._target_type, targetId = id, pos = {x = receipt.x, y = receipt.y},
+			atkSide = battle_side_pto(atk), defSide = battle_side_pto(def)})
+		for_caller.s2c_battle_result(fd, {battleId = report._report_id, result = res.result,
+			reportId = report._report_id, rewardList = {}})
+	end
+    return receipt
+end
+
 function attack_monster(user, troop)
 	local entity_id = troop:get_target_id()
 	local pos = MARCH_MGR.world_call("monster_pos", entity_id)
@@ -288,10 +347,8 @@ function occupy_res_land(user, troop)
 		x = info.x,
 		y = info.y,
 		on_win = function()
+			-- 守军胜利只开启占领倒计时；完成后由 march 检查并发放首占奖励。
 			gather_end, held, occupy_end = MARCH_MGR.world_call("occupy_res_land", entity_id, user_id, troop:get_troop_idx())
-			if gather_end or occupy_end then
-				return conf.Reward
-			end
 		end,
 	})
 	return gather_end, held, occupy_end

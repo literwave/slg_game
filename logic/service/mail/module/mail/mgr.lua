@@ -3,6 +3,15 @@
 -- 领奖要回 agent 发奖，由 agent 调 take_rewards 拿奖励
 
 local SVR_DOC_KEY = "server"
+local queue = require "skynet.queue"
+user_locks = user_locks or {}
+
+local function serialized(fn)
+	return function(uid, ...)
+		user_locks[uid] = user_locks[uid] or queue()
+		return user_locks[uid](fn, uid, ...)
+	end
+end
 
 svr_doc = nil
 
@@ -19,7 +28,7 @@ local function release_if_offline(user_id)
 	if USER_MGR.is_online(user_id) then
 		return
 	end
-	MONGO_SLAVE.flush()
+	MONGO_SLAVE.flush_sync()
 	ORM.unbind(MONGO_SLAVE.COL.USER_MAIL, user_id)
 end
 
@@ -158,7 +167,7 @@ local function clear_expired(user_id, doc)
 	end
 end
 
-local function put_mail(user_id, doc, mail_id, details, rewards, start_time, end_time)
+local function put_mail(user_id, doc, mail_id, details, rewards, start_time, end_time, defer_push)
 	local mail_kind = DATA_COMMON.get_mail_conf(mail_id).Kind
 	local uid = doc._next_uid + 1
 	doc._next_uid = uid
@@ -174,8 +183,11 @@ local function put_mail(user_id, doc, mail_id, details, rewards, start_time, end
 		_is_got_reward = false,
 		_is_lock = false,
 	}
-	USER_MGR.send(user_id, "s2c_sync_mail", {mailKind = mail_kind, mailInfo = mail_pto(doc._mails[uid])})
-	trim_kind(user_id, doc, mail_kind)
+	if not defer_push then
+		USER_MGR.send(user_id, "s2c_sync_mail", {mailKind = mail_kind, mailInfo = mail_pto(doc._mails[uid])})
+		trim_kind(user_id, doc, mail_kind)
+	end
+	return doc._mails[uid]
 end
 
 -- 补发 _fetch_idx 之后没过期的全服邮件
@@ -210,6 +222,32 @@ function send_user_mail(user_id, mail_id, details, reward_list)
 	release_if_offline(user_id)
 end
 
+-- 同一城池的轮次按顺序投递；去重水位和邮件一起保存在 user_mail 文档。
+-- 保留水位，即使玩家删信或邮件过期，重试也不能再次生成奖励邮件。
+function send_user_mail_once(user_id, source, round, mail_id, details, reward_list)
+	assert(type(source) == "string" and round > 0)
+	assert(DATA_COMMON.get_mail_conf(mail_id), "missing mail template")
+	local doc = get_doc(user_id)
+	local added
+	if (doc._source_rounds[source] or 0) < round then
+		local t = now()
+		added = put_mail(user_id, doc, mail_id, details, reward_data(reward_list), t, expire_time(mail_id, t), true)
+		doc._source_rounds[source] = round
+		doc._source_mail_ids[source] = added._mail_uid
+	elseif doc._source_rounds[source] == round then
+		added = doc._mails[doc._source_mail_ids[source]]
+	end
+	-- 写失败保留已绑定的文档，下一次重试先补写同一封邮件。
+	MONGO_SLAVE.flush_sync()
+	if added then
+		USER_MGR.send(user_id, "s2c_sync_mail", {mailKind = added._mail_kind, mailInfo = mail_pto(added)})
+		trim_kind(user_id, doc, added._mail_kind)
+		MONGO_SLAVE.flush_sync()
+	end
+	if not USER_MGR.is_online(user_id) then ORM.unbind(MONGO_SLAVE.COL.USER_MAIL, user_id) end
+	return true
+end
+
 function send_group_mail(user_id_list, mail_id, details, reward_list)
 	for _, user_id in ipairs(user_id_list) do
 		send_user_mail(user_id, mail_id, details, reward_list)
@@ -233,7 +271,7 @@ function send_srv_mail(mail_id, details, reward_list)
 		_end_time = expire_time(mail_id, t),
 	}
 	for user_id in pairs(USER_MGR.user_id_to_fd) do
-		fetch_svr_mail(user_id, get_doc(user_id))
+		serialized(function(uid) fetch_svr_mail(uid, get_doc(uid)) end)(user_id)
 	end
 end
 
@@ -351,7 +389,7 @@ function on_user_login(user_id)
 end
 
 function on_user_logout(user_id)
-	MONGO_SLAVE.flush()
+	MONGO_SLAVE.flush_sync()
 	ORM.unbind(MONGO_SLAVE.COL.USER_MAIL, user_id)
 end
 
@@ -360,8 +398,15 @@ function __init__()
 		MONGO_SLAVE.system_startup()
 		svr_doc = ORM.load(MONGO_SLAVE.COL.SVR_MAIL, SVR_DOC_KEY, ORM.CLS_SVR_MAIL_DOC)
 	end
-	for_maker.c2s_req_mail_list = on_req_mail_list
-	for_maker.c2s_req_mail_detail = on_req_mail_detail
-	for_maker.c2s_del_mail_list = on_del_mail_list
-	for_maker.c2s_set_mail_lock = on_set_mail_lock
+	for_maker.c2s_req_mail_list = serialized(on_req_mail_list)
+	for_maker.c2s_req_mail_detail = serialized(on_req_mail_detail)
+	for_maker.c2s_del_mail_list = serialized(on_del_mail_list)
+	for_maker.c2s_set_mail_lock = serialized(on_set_mail_lock)
 end
+
+-- 多城同时给一个离线玩家发奖时，加载、写入、卸载必须属于同一临界区。
+send_user_mail = serialized(send_user_mail)
+send_user_mail_once = serialized(send_user_mail_once)
+take_rewards = serialized(take_rewards)
+on_user_login = serialized(on_user_login)
+on_user_logout = serialized(on_user_logout)

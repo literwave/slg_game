@@ -51,6 +51,7 @@ report_reward {
 report_reward_list [report_reward]
 
 report_data {
+    _source_key string
     _report_id number
     _report_type number
     _target_type number

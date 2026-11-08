@@ -1,6 +1,7 @@
 local skynet = require "skynet"
 local navigation = require "navigation"
 local world_map_package = require "world_map_package"
+local city_siege = require "city_siege"
 
 local MAP_DIR = "../res/map/"
 
@@ -14,6 +15,9 @@ nav_of_alliance = nav_of_alliance or {}
 -- [user_id] = {x, y}，主城中心。占地 3×3，热更保留
 city_pos = city_pos or {}
 map_revision = nil
+alliance_cities = alliance_cities or {}
+-- 系统城池/关隘归属参与寻路；0 为中立，只有本盟占领后才可穿行。
+alliance_city_owners = alliance_city_owners or {}
 
 local nav_batch = 0
 local dirty_nav = {}
@@ -76,7 +80,9 @@ function init()
 	else
 		expected_revision = nil
 	end
-	local manifest, map_res, terrain = world_map_package.load(directory, expected_revision, "../game_common/server/res")
+	local manifest, map_res, terrain, campaign = world_map_package.load(directory, expected_revision, "../game_common/server/res")
+	alliance_cities = city_siege.placements(campaign, DATA_COMMON.get_city_configs(), DATA_COMMON.CITY_TYPE,
+		CONST.ENTITY_ID.ALLIANCE_CITY, CONST.MAP_SIDE)
 	local saved_users = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.USER_INFO, {
 		["dat._user_id"] = 1, ["dat._has_birth"] = 1,
 		["dat._birth_x"] = 1, ["dat._birth_y"] = 1,
@@ -129,8 +135,8 @@ function init()
 	terrain = nil
 
 	terrain_obstacles = obstacles
-	nav_of_alliance = {}
-	nav_alone = navigation.new(w, h, terrain_obstacles)
+	alliance_city_owners = {}
+	rebuild_city_navigation()
 	obstacles = nil
 	load_used_birth(saved_users)
 	if binding then
@@ -246,6 +252,15 @@ local function each_city_cell(pos, fn)
 	end
 end
 
+local function each_landmark_cell(city, fn)
+	local w, h = map_obj:get_width(), map_obj:get_height()
+	for y = city.y - city.radius, city.y + city.radius do
+		for x = city.x - city.radius, city.x + city.radius do
+			if x >= 0 and y >= 0 and x < w and y < h and not map_obj:is_block(idx_of_pos(x, y)) then fn(x, y) end
+		end
+	end
+end
+
 -- alliance_id 为空表示没联盟的那张图：任何主城都挡。否则只有不是这个联盟的主城才挡
 local function cell_blocked(alliance_id, x, y)
 	for uid, pos in pairs(city_pos) do
@@ -254,6 +269,10 @@ local function cell_blocked(alliance_id, x, y)
 				return true
 			end
 		end
+	end
+	for _, city in ipairs(alliance_cities) do
+		if math.abs(city.x - x) <= city.radius and math.abs(city.y - y) <= city.radius
+			and (not alliance_id or alliance_city_owners[city.id] ~= alliance_id) then return true end
 	end
 end
 
@@ -269,6 +288,38 @@ local function sync_footprint(nav, pos, alliance_id)
 	mark_nav(nav)
 end
 
+local function sync_landmark(nav, city, alliance_id)
+	each_landmark_cell(city, function(x, y)
+		if cell_blocked(alliance_id, x, y) then nav:set_obstacle({x = x, y = y})
+		else nav:unset_obstacle({x = x, y = y}) end
+	end)
+	mark_nav(nav)
+end
+
+-- 起服与热更重建派生寻路缓存，不修改地形、玩家位置或城池归属。
+function rebuild_city_navigation()
+	nav_of_alliance = {}
+	dirty_nav = {}
+	nav_alone = navigation.new(map_obj:get_width(), map_obj:get_height(), terrain_obstacles)
+	for _, pos in pairs(city_pos) do sync_footprint(nav_alone, pos, nil) end
+	for _, city in ipairs(alliance_cities) do sync_landmark(nav_alone, city, nil) end
+	flush_nav()
+end
+
+-- 占领/失守持久化成功后更新所有已缓存联盟视图，不能继续沿用旧的通行权限。
+function set_alliance_city_owner(city_id, alliance_id)
+	alliance_id = alliance_id or 0
+	if (alliance_city_owners[city_id] or 0) == alliance_id then return end
+	alliance_city_owners[city_id] = alliance_id
+	for _, city in ipairs(alliance_cities) do
+		if city.id == city_id then
+			for id, nav in pairs(nav_of_alliance) do sync_landmark(nav, city, id) end
+			break
+		end
+	end
+	flush_nav()
+end
+
 -- 本联盟的主城九格都不挡。其它联盟、没联盟的主城九格都挡
 local function build_alliance_nav(alliance_id)
 	local nav = navigation.new(map_obj:get_width(), map_obj:get_height(), terrain_obstacles)
@@ -279,7 +330,9 @@ local function build_alliance_nav(alliance_id)
 			end
 		end)
 	end
+	for _, city in ipairs(alliance_cities) do sync_landmark(nav, city, alliance_id) end
 	nav:update_areas()
+	dirty_nav[nav] = nil
 	nav_of_alliance[alliance_id] = nav
 	return nav
 end
@@ -362,7 +415,29 @@ function find_march_path(user_id, sx, sy, ex, ey)
 			end)
 		end
 	end
-	local path = nav:find_path({x = sx, y = sy}, {x = ex, y = ey}, nil, ignore)
+	-- 已在失守城内的部队允许撤离；城外部队不能借此放开任何关口。
+	-- 城池可能连着两个独立区域，必须临时重算连通性，不能随机借用邻格区域号。
+	local opened = {}
+	for _, city in ipairs(alliance_cities) do
+		if math.abs(math.floor(sx) - city.x) <= city.radius and math.abs(math.floor(sy) - city.y) <= city.radius then
+			each_landmark_cell(city, function(x, y)
+				local pos = {x = x, y = y}
+				if nav:is_obstacle(pos) then
+					opened[#opened + 1] = pos
+					nav:unset_obstacle(pos)
+				end
+			end)
+		end
+	end
+	if #opened > 0 then nav:update_areas() end
+	local ok, path = xpcall(function()
+		return nav:find_path({x = sx, y = sy}, {x = ex, y = ey}, nil, ignore)
+	end, debug.traceback)
+	if #opened > 0 then
+		for _, pos in ipairs(opened) do nav:set_obstacle(pos) end
+		nav:update_areas()
+	end
+	if not ok then error(path) end
 	if not path or #path < 2 then
 		return
 	end
@@ -371,4 +446,33 @@ function find_march_path(user_id, sx, sy, ex, ey)
 		ret[i] = {_x = pos.x, _y = pos.y}
 	end
 	return ret
+end
+
+-- 城池中心可能是不可行走的建筑格，攻城停在可达的外沿，不改变地形障碍。
+function find_city_approach(user_id, sx, sy, city)
+	local candidates, radius = {}, city.radius + 1
+	for dy = -radius, radius do
+		for dx = -radius, radius do
+			if math.abs(dx) == radius or math.abs(dy) == radius then
+				local x, y = city.x + dx, city.y + dy
+				candidates[#candidates + 1] = {x = x, y = y, d = (sx - x)^2 + (sy - y)^2}
+			end
+		end
+	end
+	table.sort(candidates, function(a, b)
+		if a.d ~= b.d then return a.d < b.d end
+		if a.y ~= b.y then return a.y < b.y end
+		return a.x < b.x
+	end)
+	local best, best_length = nil, math.huge
+	for _, pos in ipairs(candidates) do
+		if pos.d > best_length * best_length then break end -- 直线距离是剩余候选的下界。
+		local path = find_march_path(user_id, sx, sy, pos.x, pos.y)
+		if path then
+			local length = 0
+			for i = 2, #path do length = length + math.sqrt((path[i]._x - path[i-1]._x)^2 + (path[i]._y - path[i-1]._y)^2) end
+			if length < best_length then best, best_length = path, length end
+		end
+	end
+	return best
 end

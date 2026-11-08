@@ -35,6 +35,16 @@ function CMD.public_user_alliance(user_id)
 	return doc and {id = doc._alliance_id, name = doc._name} or {id = 0, name = ""}
 end
 
+-- 仅返回城池归属/参战联盟的成员，在线筛选仍由各 agent 执行。
+function CMD.city_audience(alliance_ids)
+	local users = {}
+	for id in pairs(alliance_ids) do
+		local doc = ALLIANCE_MGR.alliance_tbl[tonumber(id)]
+		if doc then for uid in pairs(doc._members) do users[#users + 1] = uid end end
+	end
+	return users
+end
+
 skynet.start(function()
 	dofile "../logic/service/union/preload.lua"
 	skynet.dispatch("lua", function(session, _, cmd, ...)

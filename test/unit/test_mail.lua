@@ -50,6 +50,10 @@ local function setup(opts)
 		end
 	end
 	local shared = {
+		require = function(name)
+			if name == "skynet.queue" then return function() return function(fn, ...) return fn(...) end end end
+			return require(name)
+		end,
 		CONST = CONST,
 		EMPTY_TABLE = {},
 		TIME = {os_bj_sec = function() return clock.now end},
@@ -78,6 +82,7 @@ local function setup(opts)
 			COL = {USER_MAIL = "user_mail_col", SVR_MAIL = "svr_mail_col"},
 			system_startup = function() end,
 			flush = flush,
+			flush_sync = flush,
 		},
 		EVENT = {register = function() end},
 		for_maker = {},
@@ -242,6 +247,41 @@ function T.srv_mail_fetch()
 	t.clock.now = t.clock.now + 31 * DAY
 	t.online(3)
 	assert(#t.list(3, 3) == 0, "expired srv mail not fetched")
+end
+
+function T.city_reward_once_survives_unload_and_mail_deletion()
+	local t = setup()
+	local source = "city:5000000000001234"
+	assert(t.M.send_user_mail_once(2, source, 1, 4, {"洛阳攻城", "1"}, {item(1, 100)}))
+	assert(not orm.get("user_mail_col", 2))
+	t.M.send_user_mail_once(2, source, 1, 4, {"洛阳攻城", "1"}, {item(1, 100)})
+	t.online(2)
+	local list = t.list(2, 1)
+	assert(#list == 1)
+	t.M.take_rewards(2, {})
+	t.req(2, "c2s_del_mail_list", {mailKind = 1, mailUidList = {list[1].mailUid}})
+	t.offline(2)
+	t.M.send_user_mail_once(2, source, 1, 4, {"洛阳攻城", "1"}, {item(1, 100)})
+	t.online(2)
+	assert(#t.list(2, 1) == 0, "删信不删除发奖去重水位")
+	t.M.send_user_mail_once(2, source, 2, 4, {"洛阳攻城", "2"}, {item(2, 50)})
+	assert(#t.list(2, 1) == 1)
+end
+
+function T.city_reward_database_failure_retains_one_mail_until_retry()
+	local t = setup()
+	t.online(1)
+	local flush = t.shared.MONGO_SLAVE.flush_sync
+	t.shared.MONGO_SLAVE.flush_sync = function() error("db unavailable") end
+	assert(not pcall(t.M.send_user_mail_once, 1, "city:101", 1, 4, {"城池", "1"}, {item(1, 99)}))
+	assert(not t.last(1, "s2c_sync_mail"), "失败写盘不能先向客户端宣称已发奖")
+	t.shared.MONGO_SLAVE.flush_sync = flush
+	t.M.send_user_mail_once(1, "city:101", 1, 4, {"城池", "1"}, {item(1, 99)})
+	t.offline(1)
+	t.online(1)
+	assert(#t.list(1, 1) == 1)
+	assert(t.M.take_rewards(1, {}).rewards[1].item_count == 99)
+	assert(#t.M.take_rewards(1, {}).rewards == 0)
 end
 
 return T

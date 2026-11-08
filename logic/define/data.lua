@@ -25,6 +25,15 @@ local DATA_TARGET_TYPE = sharedata.query("TargetType")
 local DATA_MAIL = sharedata.query("Mail")
 local DATA_RES_LAND = sharedata.query("ResLand")
 local DATA_RES_LAND_FIRST = sharedata.query("ResLandFirst")
+local DATA_CITY = sharedata.query("City")
+
+function get_city_conf(city_type, level)
+	return DATA_CITY[city_type] and DATA_CITY[city_type][level]
+end
+
+function get_city_configs()
+	return DATA_CITY
+end
 -- local DATA_NAME_CN = sharedata.query("NameCn")
 
 -- local conf = {
@@ -36,6 +45,7 @@ local DATA_RES_LAND_FIRST = sharedata.query("ResLandFirst")
 -- 枚举由 game_common 单独导出，不再依赖业务表的 Enum 列。
 local function init_enum()
 	ENTITY_TYPE = sharedata.query("EntityTypeEnum")
+	CITY_TYPE = sharedata.query("CityTypeEnum")
 	TARGET_TYPE = sharedata.query("TargetTypeEnum")
 	TROOP_STATE = sharedata.query("TroopStateEnum")
 	REPORT_TYPE = sharedata.query("ReportTypeEnum")
