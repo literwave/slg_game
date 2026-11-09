@@ -11,14 +11,16 @@ local function load_env(path)
 	return env
 end
 
-local function load_aoi()
+local function load_aoi(options)
+    sends = {} -- Every fixture owns its outbound evidence.
+    options = options or {}
+    local timers, forks = {}, {}
 	local skynet = {
 		error = noop,
-		timeout = noop,
-		fork = noop,
-		getenv = function()
-			return nil
-		end,
+        hpc = function() return math.floor(os.clock() * 1000000000) end,
+        timeout = function(delay, fn) timers[#timers+1] = {delay=delay,fn=fn} end,
+        fork = function(fn) forks[#forks+1] = fn end,
+        getenv = function(name) return options[name] end,
 		call = noop,
 		rawcall = noop,
 		sleep = noop,
@@ -49,6 +51,7 @@ local function load_aoi()
 	}, {__index = _G})
 	assert(loadfile("logic/service/world/module/aoi/mgr.lua", "t", env))()
 	package.loaded.skynet = prev_skynet
+    env._test = {skynet=skynet, timers=timers, forks=forks}
 	return env
 end
 
@@ -110,6 +113,27 @@ function T.parked_troop_is_visible()
 	assert(#moved == 1)
 	assert(#moved[1].pack.update == 1, "marching updates the same troop instead of hiding it")
 	assert(moved[1].pack.update[1].path)
+end
+
+function T.unchanged_focus_skips_scan_but_keeps_live_seen_state_and_first_view()
+    local A=load_aoi()
+    A.upsert_city(1,1,0,{name="first",level=1})
+    assert(#A.focus(8,0,0).enter==1)
+    local old_pairs=A.pairs
+    A.pairs=function() error("unchanged focus rescanned entities") end
+    local same=A.focus(8,0,0)
+    assert(#same.enter==0 and #same.leave==0)
+    A.pairs=old_pairs
+    A.upsert_city(2,2,0,{name="second",level=1})
+    assert(A.runtime.focus_tbl[8].seen[A.CONST.city_entity_id(2)])
+    local after=A.focus(8,0,0)
+    assert(#after.enter==0 and #after.leave==0,"live enter already updated the seen set")
+    local moved=A.focus(8,900,900)
+    assert(#moved.leave==2)
+    assert(#A.focus(8,0,0).enter==2)
+    A.clear_focus(8)
+    assert(#A.focus(8,0,0).enter==2,"recreated observer needs an initial scan")
+    assert(#A.focus(9,0,0).enter==2,"new observer at identical coordinates needs a scan")
 end
 
 function T.bucket_edge()
@@ -346,6 +370,150 @@ function T.captured_deployment_updates_serial_and_publishes_city_without_hiding_
     e=snapshot(9)
     assert(e.troopState==1 and e.targetId==0 and e.path, "旧入城通知不能覆盖已经出城的新行军")
     clear_sends()
+end
+
+local function actual_encounters(A)
+    local E = setmetatable({MARCH_PATH=A.MARCH_PATH, DATA_COMMON={TARGET_TYPE=dofile("game_common/server/enum/TargetTypeEnum.lua")}}, {__index=_G})
+    assert(loadfile("logic/service/world/module/encounter/mgr.lua", "t", E))()
+    A.ENCOUNTER_MGR = E
+    A.DATA_COMMON.get_march_speed = function() return 1 end
+    A.MAP_MGR = {find_march_path=function(_,sx,sy,ex,ey) return {{_x=sx,_y=sy},{_x=ex,_y=ey}} end}
+    return E
+end
+
+local function moving(A, uid)
+    return A.runtime.active_movers[A.CONST.troop_entity_id(uid, 1)]
+end
+local function march(A, uid, target)
+    A.start_march({user_id=uid,troop_idx=1,target_type=target or 5,path=line(0,4),start_time=0,end_time=4})
+end
+
+function T.active_index_tracks_arrival_siege_return_hide_delete_and_replacement()
+    local A = load_aoi()
+    march(A,1); assert(moving(A,1))
+    A.step(4); assert(not moving(A,1))
+    A.siege_troop({user_id=1,troop_idx=1,path=line(0,4),start_time=4,end_time=8,target_id=501},{x=5,y=0})
+    assert(not moving(A,1))
+    march(A,1,1); local old = moving(A,1); assert(old)
+    march(A,1,1); assert(moving(A,1) and moving(A,1) ~= old)
+    A.hide_troop(1,1); assert(not moving(A,1))
+    march(A,1); A.remove_troop(1,1); assert(not moving(A,1))
+    A.park_troop(1,1,0,0); assert(not moving(A,1))
+    -- Static entities must not be enumerated in a world step, regardless of count.
+    A.pairs = function(t)
+        assert(t ~= A.runtime.entities, "world step scanned static entities")
+        return pairs(t)
+    end
+    A.step(5)
+end
+
+function T.encounter_wait_and_abort_restore_the_active_index()
+    local A = load_aoi(); actual_encounters(A)
+    march(A,1); march(A,2); march(A,3)
+    assert(not moving(A,1) and not moving(A,2) and not moving(A,3))
+    local third = A.runtime.entities[A.CONST.troop_entity_id(3,1)]
+    assert(third.waiting, "third troop must be waiting behind the encounter")
+    A.agent_list = {} -- failed lookup aborts without contacting a real service
+    A._test.forks[1]()
+    assert(moving(A,1) and moving(A,2) and moving(A,3))
+    assert(not third.waiting)
+end
+
+function T.encounter_victory_resumes_only_the_winner()
+    local A = load_aoi(); actual_encounters(A)
+    march(A,1); march(A,2)
+    A._test.skynet.call = function(_,_,cmd)
+        if cmd == "encounter_snap" then return {side={},end_time=4,state=1} end
+        return {{result=A.CONST.BATTLE_RESULT.WIN,atk_left={},def_left={},actions={}}}
+    end
+    A._test.forks[1]()
+    assert(moving(A,2) and not moving(A,1))
+    A.step(4)
+    assert(not moving(A,2), "resumed winner must still complete its march")
+end
+
+function T.stale_encounter_after_rpc_cannot_remove_a_replacement_march()
+    local A = load_aoi(); actual_encounters(A)
+    march(A,1); march(A,2)
+    A._test.skynet.call = function(_,_,cmd)
+        if cmd == "encounter_snap" then coroutine.yield("snapshot"); return {side={},end_time=4,state=1} end
+        return {{result=A.CONST.BATTLE_RESULT.WIN,atk_left={},def_left={},actions={}}}
+    end
+    local worker = coroutine.create(A._test.forks[1])
+    local ok, reason = coroutine.resume(worker)
+    assert(ok and reason == "snapshot")
+    march(A,2,1)
+    local replacement = moving(A,2)
+    assert(replacement)
+    assert(coroutine.resume(worker))
+    assert(coroutine.resume(worker) and coroutine.status(worker) == "dead")
+    assert(moving(A,2) == replacement, "stale callback must preserve replacement identity")
+end
+
+local function failed_step_restores_state(inject, expected)
+    clear_sends()
+    local A=load_aoi()
+    A.focus(8,0,0)
+    local old_advance=A.ENCOUNTER_MGR.advance
+    local saved={}
+    for _,name in ipairs({"call","rawcall","sleep","wait"}) do saved[name]=A._test.skynet[name] end
+    A.ENCOUNTER_MGR.advance=function()
+        A.upsert_city(1,1,0,{name="pending",level=1})
+        return inject(A)
+    end
+    local ok,err=pcall(A.step,1)
+    assert(not ok and tostring(err):find(expected,1,true),tostring(err))
+    for name,fn in pairs(saved) do assert(A._test.skynet[name]==fn,"frame leaked a Skynet API override") end
+    assert(#aoi_pushes()==1,"failed frame must flush already recorded AOI changes")
+    clear_sends()
+    A.upsert_city(2,2,0,{name="after",level=1})
+    assert(#aoi_pushes()==1,"failed frame must reset batching immediately")
+    A.ENCOUNTER_MGR.advance=old_advance
+    assert(pcall(A.step,2),"failed frame must release its reentry guard")
+end
+
+function T.direct_yield_cannot_suspend_a_world_frame_or_leave_apis_disabled()
+    failed_step_restores_state(function() coroutine.yield("forbidden") end,"cannot yield")
+end
+
+function T.reentrant_world_step_fails_before_mutating_frame_state()
+    failed_step_restores_state(function(A) A.step(1) end,"reentry")
+end
+
+function T.world_step_exception_restores_apis_and_allows_the_next_frame()
+    failed_step_restores_state(function() error("injected step failure") end,"injected step failure")
+end
+
+function T.performance_metrics_are_bounded_and_measure_scheduling_lateness()
+    local A = load_aoi({performance_metrics="1"})
+    local now = 0
+    A.TIME.now = function() return now end
+    A.TIME.os_bj_sec = function() return now end
+    A.DATA_COMMON.get_monster_group_tbl = function() return {} end
+    A.DATA_COMMON.get_main_city_bid = function() return 1 end
+    A.MONGO_SLAVE = {COL={USER_INFO="u",USER_BUILD="b",USER_TROOP="t"},common_load_tbl=function() return {} end}
+    A.MAP_MGR = {begin_nav_batch=noop,end_nav_batch=noop}
+    A.ENCOUNTER_MGR.load_alliances = noop
+    A.LAND_MGR, A.CITY_MGR = {init=noop}, {init=noop}
+    A._test.skynet.call = function() return {"agent"} end
+    A.init()
+    local timers = A._test.timers
+    now = 0.01; timers[#timers].fn()
+    now = 0.08; timers[#timers].fn()
+    local metrics = A.performance_stats()
+    assert(metrics.enabled and metrics.ticks == 2 and metrics.errors == 0)
+    assert(math.abs(metrics.late_ms.max - 20) < 0.001)
+    assert(metrics.step_ms.count == 2 and #metrics.step_ms.buckets == 15)
+    metrics.step_ms.count = 999
+    assert(A.performance_stats().step_ms.count == 2, "diagnostics return a copy")
+    local old_advance=A.ENCOUNTER_MGR.advance
+    A.ENCOUNTER_MGR.advance=function() coroutine.yield("invalid frame") end
+    now=0.13; timers[#timers].fn()
+    assert(A.performance_stats().ticks==3 and A.performance_stats().errors==1)
+    A.ENCOUNTER_MGR.advance=old_advance
+    now=0.18; timers[#timers].fn()
+    assert(A.performance_stats().ticks==4 and A.performance_stats().errors==1,"tick must schedule recovery after a failed frame")
+    assert(load_aoi().performance_stats().enabled == false)
 end
 
 return T

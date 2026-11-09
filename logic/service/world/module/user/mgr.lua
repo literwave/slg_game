@@ -35,9 +35,13 @@ local function module_on_user_logout(user_id)
 end
 
 function disconnect(fd, user_id)
-	del_user_id_by_vfd(fd)
+	if fd_to_user_id[fd] == user_id then
+		del_user_id_by_vfd(fd)
+		fd_to_gate_srv[fd] = nil
+	end
+	-- A delayed logout from the replaced connection must not clear the new view.
+	if user_id_to_fd[user_id] ~= fd then return end
 	user_id_to_fd[user_id] = nil
-	fd_to_gate_srv[fd] = nil
 	module_on_user_logout(user_id)
 end
 
@@ -52,6 +56,15 @@ end
 
 function on_user_login(user_id, fd, gate_srv, is_first_login)
 	LOG._debug("world login success", user_id, gate_srv, is_first_login)
+	local old_fd = user_id_to_fd[user_id]
+	if old_fd and old_fd ~= fd then
+		if fd_to_user_id[old_fd] == user_id then
+			del_user_id_by_vfd(old_fd)
+			fd_to_gate_srv[old_fd] = nil
+		end
+		-- Seen entities belong to a client connection, not the persistent user.
+		AOI_MGR.clear_focus(user_id)
+	end
 	ref_login(user_id, fd, gate_srv)
 end
 

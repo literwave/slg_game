@@ -264,7 +264,16 @@ local function on_req_all_item_data(fd)
 	for_caller.s2c_req_all_item_data(fd, {itemList = item_list})
 end
 
+-- Clear every secondary index after the final persistence ACK.
+function on_user_logout(user_id)
+    all_item_tbl[user_id] = nil
+    all_item_uid_tbl[user_id] = nil
+    all_item_kind_tbl[user_id] = nil
+    ORM.unbind(MONGO_SLAVE.COL.USER_ITEM, user_id)
+end
+
 function __init__()
+    EVENT.listen(CONST.EVENT.ON_USER_LOGOUT)
 	for_maker.c2s_req_all_item_data = on_req_all_item_data
 end
 

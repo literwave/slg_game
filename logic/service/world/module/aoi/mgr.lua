@@ -2,9 +2,17 @@ local skynet = require "skynet"
 
 -- 世界实体与视野索引必须一起保留：热更只替换函数，不能清空正在行军的部队。
 -- 否则客户端走到了终点，而世界帧已找不到实体，永远不会发送到达通知。
-runtime = runtime or {entities = {}, focus_tbl = {}, entity_buckets = {}, focus_buckets = {}}
+runtime = runtime or {entities = {}, focus_tbl = {}, entity_buckets = {}, focus_buckets = {}, active_movers = {}}
 local entities = runtime.entities
 local focus_tbl = runtime.focus_tbl
+local active_movers = runtime.active_movers
+local function track_mover(e)
+    if entities[e.id] == e and e.moving and not e.fighting and not e.waiting and not e.hidden then
+        active_movers[e.id] = e
+    elseif active_movers[e.id] == e then
+        active_movers[e.id] = nil
+    end
+end
 -- 桶边长等于视野半径。距离不超过半径时，横竖最多隔一个桶，查周围 3×3 即可
 local BUCKET = CONST.AOI_RADIUS
 local BUCKET_KEY = 1024
@@ -324,6 +332,7 @@ local function sync_entity(e, with_update)
 end
 
 local function refresh_entity(e)
+    track_mover(e)
 	sync_entity(e, true)
 end
 
@@ -332,6 +341,7 @@ local function sync_cross(e)
 end
 
 local function leave_all(e)
+    if active_movers[e.id] == e then active_movers[e.id] = nil end
 	unbucket(entity_buckets, e, e.id)
 	local w = e.watchers
 	e.watchers = nil
@@ -461,6 +471,7 @@ local function restore_move(e, gen)
 		e.moving = true
 		e.was_moving = nil
 	end
+    track_mover(e)
 end
 
 local function abort_encounter(atk, def, gen, x, y)
@@ -471,6 +482,7 @@ local function abort_encounter(atk, def, gen, x, y)
 			e.moving = true
 			e.was_moving = nil
 		end
+        track_mover(e)
 	end
 end
 
@@ -659,6 +671,7 @@ function start_march(info)
 		old.watchers = nil
 	end
 	entities[id] = e
+    track_mover(e)
 	ENCOUNTER_MGR.index_at(e, math.floor(x), math.floor(y))
 	local fight, extra = ENCOUNTER_MGR.touch(e)
 	if fight or (extra and extra[1]) then
@@ -792,10 +805,14 @@ end
 
 function focus(user_id, x, y)
 	local f = focus_tbl[user_id]
+    -- Entity movement and lifecycle updates already maintain this observer's
+    -- seen set. A repeated focus does not need to rescan the spatial buckets.
+    if f and f.initialized and f.x == x and f.y == y then return {enter = {}, leave = {}} end
 	if not f then
 		f = {seen = {}}
 		focus_tbl[user_id] = f
 	end
+    f.initialized = false
 	f.x = x
 	f.y = y
 	put_bucket(focus_buckets, f, user_id, x, y)
@@ -821,6 +838,7 @@ function focus(user_id, x, y)
 		end
 	end
 	f.seen = now_seen
+    f.initialized = true
 	return {enter = enter, leave = leave}
 end
 
@@ -864,10 +882,12 @@ end
 -- 沿路径过格只做走进/走出；停步和开打走 refresh_entity。这一拍的推送在结束时合成一条
 local function do_step(now)
 	local movers = {}
-	for _, e in pairs(entities) do
-		if e.moving and not e.fighting and not e.waiting then
-			movers[#movers + 1] = e
-		end
+	for id, e in pairs(active_movers) do
+        if entities[id] == e and e.moving and not e.fighting and not e.waiting and not e.hidden then
+            movers[#movers + 1] = e
+        else
+            active_movers[id] = nil
+        end
 	end
 	local fights, stops = ENCOUNTER_MGR.advance(movers, now)
 	apply_encounter(fights, stops)
@@ -886,38 +906,90 @@ local function do_step(now)
 	end
 end
 
-function step(now)
-	batching = true
-	local ok, err = xpcall(do_step, debug.traceback, now)
-	batching = false
-	flush_pending()
-	if not ok then
-		error(err, 0)
-	end
-end
-
--- 这一拍里禁止挂起。先摘掉，跑完再挂回去；帧里调用会直接报错
--- 热更前如果包过一层，先换回原始函数
-if yield_raw then
-	for name, fn in pairs(yield_raw) do
-		skynet[name] = fn
-	end
-	yield_raw = nil
-end
-
+local stepping = false
 local YIELD_FUNC = {"call", "rawcall", "sleep", "wait"}
+local function without_yield(fn, ...)
+    local co = coroutine.create(fn)
+    local ok, err = coroutine.resume(co, ...)
+    if coroutine.status(co) ~= "dead" then
+        local closed, close_err = coroutine.close(co)
+        return false, closed and "world step cannot yield" or close_err
+    end
+    if not ok then
+        err = debug.traceback(co, tostring(err))
+        coroutine.close(co)
+    end
+    return ok, err
+end
+
+local function step_body(now)
+    batching = true
+    local ok, err = xpcall(do_step, debug.traceback, now)
+    batching = false
+    flush_pending()
+    if not ok then error(err, 0) end
+end
+
+function step(now)
+    assert(not stepping, "world step reentry")
+    stepping = true
+    local saved = {}
+    for _, name in ipairs(YIELD_FUNC) do
+        saved[#saved + 1] = {name=name, value=skynet[name]}
+        skynet[name] = function() error("world step cannot yield", 2) end
+    end
+    -- A private coroutine catches direct yields as well as guarded Skynet calls.
+    -- It is resumed once only; a failed frame never leaves a suspended writer.
+    local ok, err = without_yield(step_body, now)
+    batching = false
+    if pending then
+        local flushed, flush_err = without_yield(flush_pending)
+        if not flushed and ok then ok, err = false, flush_err end
+    end
+    for _, entry in ipairs(saved) do skynet[entry.name] = entry.value end
+    stepping = false
+    if not ok then error(err, 0) end
+end
+
+local metrics_enabled = skynet.getenv("performance_metrics") == "1"
+local metric_bounds = {0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100, 250, 500, 1000, 5000}
+local metrics = metrics_enabled and {ticks = 0, errors = 0, step_ms = {count=0,sum=0,max=0,buckets={}},
+    late_ms = {count=0,sum=0,max=0,buckets={}}} or nil
+local expected_tick
+local function observe(metric, value)
+    metric.count, metric.sum, metric.max = metric.count + 1, metric.sum + value, math.max(metric.max, value)
+    local index = #metric_bounds + 1
+    for i, bound in ipairs(metric_bounds) do if value <= bound then index = i; break end end
+    metric.buckets[index] = (metric.buckets[index] or 0) + 1
+end
+
+function performance_stats()
+    if not metrics then return {enabled = false} end
+    local out = {enabled = true, ticks = metrics.ticks, errors = metrics.errors, late_resolution_ms = 10}
+    for _, name in ipairs({"step_ms", "late_ms"}) do
+        local value = metrics[name]
+        local summary = {count=value.count, sum=value.sum, max=value.max, buckets={}}
+        for i, bound in ipairs(metric_bounds) do
+            summary.buckets[i] = {upper_ms=bound, count=value.buckets[i] or 0}
+        end
+        summary.overflow = value.buckets[#metric_bounds + 1] or 0
+        out[name] = summary
+    end
+    return out
+end
 
 local function tick()
-	local saved = {}
-	for _, name in ipairs(YIELD_FUNC) do
-		saved[name] = skynet[name]
-		skynet[name] = nil
-	end
 	local t0 = TIME.now()
+    local step_started = metrics and skynet.hpc()
+    if metrics then
+        metrics.ticks = metrics.ticks + 1
+        observe(metrics.late_ms, math.max(0, t0 - (expected_tick or t0)) * 1000)
+    end
 	local ok, err = xpcall(step, debug.traceback, t0)
-	for name, fn in pairs(saved) do
-		skynet[name] = fn
-	end
+    if metrics then
+        observe(metrics.step_ms, (skynet.hpc() - step_started) / 1000000)
+        if not ok then metrics.errors = metrics.errors + 1 end
+    end
 	if not ok then
 		skynet.error("世界帧执行出错\n" .. tostring(err))
 	end
@@ -925,7 +997,9 @@ local function tick()
 	if wait < 0.01 then
 		wait = 0.01
 	end
-	skynet.timeout(math.floor(wait * 100 + 0.5), tick)
+    local ticks = math.floor(wait * 100 + 0.5)
+    expected_tick = TIME.now() + ticks / 100
+	skynet.timeout(ticks, tick)
 end
 
 local function troop_has_hero(troop)
@@ -994,6 +1068,7 @@ function init()
 		end
 	end
 	local birth = {}
+	ENCOUNTER_MGR.load_alliances()
 	MAP_MGR.begin_nav_batch()
 	for _, dat in pairs(users) do
 		if dat._has_birth and dat._user_id then
@@ -1005,7 +1080,6 @@ function init()
 		end
 	end
 	MAP_MGR.end_nav_batch()
-	ENCOUNTER_MGR.load_alliances()
 	load_agent_list()
 	LAND_MGR.init()
 	CITY_MGR.init()

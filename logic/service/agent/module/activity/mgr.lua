@@ -102,12 +102,83 @@ function on_calc_lottery_cost(user_id, ctx)
 	end
 end
 
+-- Derived ranking updates are coalesced outside the player's request coroutine.
+-- Keep these module variables across hot reloads, just like the event listeners.
+rank_pending = {}
+rank_flush_scheduled = false
+
+local schedule_rank_flush
+local function flush_rank_user(user_id)
+    local pending = rank_pending[user_id]
+    if not pending then return end
+    local user = USER_MGR.get_user_by_id(user_id)
+    if user then
+        for kind, version in pairs(pending.dirty) do
+            local score
+            -- Background work must not reload documents during login/logout.
+            if kind == DATA_COMMON.RANK_TYPE.POWER and ORM.get(MONGO_SLAVE.COL.USER_HERO, user_id) then
+                score = user:get_power()
+            elseif kind == DATA_COMMON.RANK_TYPE.CITY_LEVEL and ORM.get(MONGO_SLAVE.COL.USER_BUILD, user_id) then
+                score = user:get_city_level()
+            elseif kind == DATA_COMMON.RANK_TYPE.KILL then score = user._data._kill_count end
+            if rank_pending[user_id] ~= pending or USER_MGR.get_user_by_id(user_id) ~= user then return end
+            if score ~= nil and pending.dirty[kind] == version then
+                pending.dirty[kind] = nil
+                pending.values[kind] = {score = score, name = user:get_name(), head_icon = user:get_head_icon()}
+            end
+        end
+    end
+    local addr = skynet.localname(".activity")
+    if addr then
+        for kind, value in pairs(pending.values) do
+            local ok, accepted = pcall(skynet.send, addr, "lua", "set_score", kind,
+                user_id, value.score, value.name, value.head_icon)
+            if ok and accepted ~= nil and accepted ~= false then
+                pending.values[kind] = nil
+            elseif not pending.warned then
+                pending.warned = true
+                if LOG then LOG._warn("rank update queued for retry: %s", user_id) end
+            end
+        end
+    end
+    if not next(pending.dirty) and not next(pending.values) then
+        rank_pending[user_id] = nil
+    end
+end
+
+schedule_rank_flush = function(delay)
+    if rank_flush_scheduled or not next(rank_pending) then return end
+    rank_flush_scheduled = true
+    skynet.timeout(delay or 0, function()
+        rank_flush_scheduled = false
+        for user_id, pending in pairs(rank_pending) do
+            local ok = pcall(flush_rank_user, user_id)
+            if not ok and not pending.warned then
+                pending.warned = true
+                if LOG then LOG._warn("rank snapshot queued for retry: %s", user_id) end
+            end
+        end
+        -- A missing/restarting activity service must not cause a zero-tick retry loop.
+        schedule_rank_flush(100)
+    end)
+end
+
+local function queue_rank(user_id, kind)
+    local pending = rank_pending[user_id]
+    if not pending then
+        pending = {dirty = {}, values = {}}
+        rank_pending[user_id] = pending
+    end
+    pending.version = (pending.version or 0) + 1
+    pending.dirty[kind] = pending.version
+    pending.values[kind] = nil -- a newer score supersedes any failed older snapshot
+    schedule_rank_flush(0)
+end
+
 local function report_score(user_id)
-	local user = USER_MGR.try_init_user(user_id)
-	local name, head_icon = user:get_name(), user:get_head_icon()
-	call_rank("set_score", DATA_COMMON.RANK_TYPE.POWER, user_id, user:get_power(), name, head_icon)
-	call_rank("set_score", DATA_COMMON.RANK_TYPE.CITY_LEVEL, user_id, user:get_city_level(), name, head_icon)
-	call_rank("set_score", DATA_COMMON.RANK_TYPE.KILL, user_id, user._data._kill_count, name, head_icon)
+    queue_rank(user_id, DATA_COMMON.RANK_TYPE.POWER)
+    queue_rank(user_id, DATA_COMMON.RANK_TYPE.CITY_LEVEL)
+    queue_rank(user_id, DATA_COMMON.RANK_TYPE.KILL)
 end
 
 -- 只由服务端战斗结算调用，客户端不能上报歼敌数。
@@ -115,7 +186,7 @@ function add_kills(user, count)
 	count = math.max(0, math.floor(count or 0))
 	if count == 0 then return end
 	user._data._kill_count = user._data._kill_count + count
-	call_rank("set_score", DATA_COMMON.RANK_TYPE.KILL, user:get_user_id(), user._data._kill_count, user:get_name(), user:get_head_icon())
+	queue_rank(user:get_user_id(), DATA_COMMON.RANK_TYPE.KILL)
 end
 
 local function rank_item_pto(item)
@@ -137,6 +208,8 @@ local function on_req_rank_list(fd, packet)
 		local alliance = skynet.call(".union", "lua", "public_user_alliance", user_id)
 		self_id = alliance and alliance.id or 0
 	end
+	-- Updates sent from this agent arrive before its subsequent rank query.
+	flush_rank_user(user_id)
 	local ret = call_rank("get_rank_list", packet.rankType, start, count, self_id)
 	if not ret then
 		return
@@ -153,11 +226,23 @@ local function on_req_rank_list(fd, packet)
 end
 
 function on_user_login(user_id)
-	report_score(user_id)
+    local user = USER_MGR.get_user_by_id(user_id)
+    if not user then return end
+    -- Preserve the former login initialization, within the player's login queue.
+    -- Deferred callbacks only read these caches and never start a parallel load.
+    if not ORM.get(MONGO_SLAVE.COL.USER_HERO, user_id) then user:get_power() end
+    if not ORM.get(MONGO_SLAVE.COL.USER_BUILD, user_id) then user:get_city_level() end
+    if USER_MGR.get_user_by_id(user_id) == user then report_score(user_id) end
+end
+
+-- Called by USER_MGR before logout listeners release dependent documents.
+function on_user_logout(user_id)
+    flush_rank_user(user_id)
+    schedule_rank_flush(100)
 end
 
 function on_hero_add(user_id)
-	report_score(user_id)
+	queue_rank(user_id, DATA_COMMON.RANK_TYPE.POWER)
 end
 
 function on_head_icon(user_id)
@@ -165,12 +250,12 @@ function on_head_icon(user_id)
 end
 
 function on_hero_level(user_id)
-	report_score(user_id)
+	queue_rank(user_id, DATA_COMMON.RANK_TYPE.POWER)
 end
 
 function on_build_level(user_id, bid)
 	if bid == CONST.BUILD_TYPE.MAIN_HALL then
-		report_score(user_id)
+		queue_rank(user_id, DATA_COMMON.RANK_TYPE.CITY_LEVEL)
 	end
 end
 

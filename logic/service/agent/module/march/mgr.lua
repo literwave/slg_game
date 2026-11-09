@@ -31,7 +31,7 @@ local function ack_siege(troop)
 	if troop._data._siege_city <= 0 or (troop:get_target_type() == DATA_COMMON.TARGET_TYPE.ATTACK_CITY
 		and troop._data._march_serial == troop._data._siege_seq) then return end
 	local ok, acknowledged = pcall(function()
-		MONGO_SLAVE.flush_sync()
+		MONGO_SLAVE.flush_snapshot()
 		return world_call("ack_city_attack", troop._data._siege_city, troop:get_user_id(),
 			troop:get_troop_idx(), troop._data._siege_seq)
 	end)
@@ -101,7 +101,7 @@ local function begin_march(user, troop, target_type, target_id, ex, ey, ox, oy, 
     -- 调动的部队状态先落盘，world 再变更驻留账本；崩溃恢复有明确的行军流水号。
     local deployment = target_type == DATA_COMMON.TARGET_TYPE.REDEPLOY or previous.target_type == DATA_COMMON.TARGET_TYPE.REDEPLOY
     local persisted, persist_error = true, nil
-    if deployment then persisted, persist_error = pcall(MONGO_SLAVE.flush_sync) end
+    if deployment then persisted, persist_error = pcall(MONGO_SLAVE.flush_snapshot) end
     local called, ok = false, false
     if persisted then called, ok = pcall(world_call, "start_march", troop:get_march_info())
     else skynet.error("redeploy state could not be saved", persist_error) end
@@ -109,7 +109,7 @@ local function begin_march(user, troop, target_type, target_id, ex, ey, ox, oy, 
         troop:set_march(previous)
         troop:set_troop_state(previous_troop_state)
         troop._data._march_serial = previous_serial
-        if deployment then MONGO_SLAVE.flush_sync() end
+        if deployment then MONGO_SLAVE.flush_snapshot() end
 		return false
 	end
 	ack_siege(troop)
@@ -139,7 +139,7 @@ local function stay_in_allied_city(user, troop)
         path = {{_x = target.x, _y = target.y}}, start_time = now, end_time = now})
     troop:set_arrived()
     local arrival_serial = troop._data._march_serial
-    MONGO_SLAVE.flush_sync()
+    MONGO_SLAVE.flush_snapshot()
     local arrived = world_call("arrive_redeploy", troop:get_march_info())
     if troop._data._march_serial ~= arrival_serial then return true end
     if arrived == nil then error("city deployment arrival unavailable") end
@@ -191,12 +191,12 @@ function on_arrive(user_id, troop_idx, end_time)
             if troop:get_march_state() == CONST.MARCH_STATE.MOVING then
                 local now = TIME.now()
                 troop:set_siege(now, now + CONST.CITY_SIEGE_SECONDS)
-                MONGO_SLAVE.flush_sync()
+                MONGO_SLAVE.flush_snapshot()
             else
                 -- 兼容旧存档中已结算但返程失败的攻城，不重新延长计时或更换流水号。
                 troop:set_troop_state(DATA_COMMON.TROOP_STATE.SIEGE)
             end
-            MONGO_SLAVE.flush_sync()
+            MONGO_SLAVE.flush_snapshot()
             assert(world_call("siege_troop", troop:get_march_info()), "siege presentation unavailable")
             sync_troop_state(user, troop)
             local left = troop:get_end_time() - TIME.now()
@@ -211,7 +211,7 @@ function on_arrive(user_id, troop_idx, end_time)
                 local now = TIME.now()
                 troop:next_siege_round(now, now + CONST.CITY_SIEGE_SECONDS, receipt.city_round)
                 -- 兵力和下一轮编号先持久化，才能清理上一轮回执。
-                MONGO_SLAVE.flush_sync()
+                MONGO_SLAVE.flush_snapshot()
                 ack_siege(troop)
                 assert(world_call("siege_troop", troop:get_march_info()), "siege presentation unavailable")
                 sync_troop_state(user, troop)
@@ -224,7 +224,7 @@ function on_arrive(user_id, troop_idx, end_time)
                 return
             end
             if not begin_return(user, troop) then error("siege return path temporarily unavailable") end
-            MONGO_SLAVE.flush_sync()
+            MONGO_SLAVE.flush_snapshot()
             sync_troop_state(user, troop)
         end)
         if not ok then
@@ -237,14 +237,14 @@ function on_arrive(user_id, troop_idx, end_time)
         local arrival_serial = troop._data._march_serial
         local ok, err = pcall(function()
             troop:set_arrived()
-            MONGO_SLAVE.flush_sync()
+            MONGO_SLAVE.flush_snapshot()
             local arrived = world_call("arrive_redeploy", troop:get_march_info())
             if troop._data._march_serial ~= arrival_serial then return end
             if arrived == nil then error("redeploy service unavailable") end
             if not arrived then
                 -- 中途退盟、易主或旧到达通知，不能入驻，也不转为攻城。
                 if not begin_return(user, troop) then error("redeploy return path unavailable") end
-                MONGO_SLAVE.flush_sync()
+                MONGO_SLAVE.flush_snapshot()
             end
             sync_troop_state(user, troop)
         end)
@@ -553,7 +553,7 @@ local function on_march(fd, packet)
 		USER_MGR.tell_me(user_id, "目标无法到达")
 		return
 	end
-	MONGO_SLAVE.flush_sync()
+	MONGO_SLAVE.flush_snapshot()
 	for_caller.s2c_sync_troop(fd, {troopInfo = troop:get_pto_info()})
 	for_caller.s2c_march(fd, {marchInfo = troop:get_march_pto()})
 	if not was_moving and packet.targetType ~= DATA_COMMON.TARGET_TYPE.RETURN_CITY then
@@ -580,7 +580,7 @@ local function on_cancel_march(fd, packet)
 	if not begin_return(user, troop) then
 		return
 	end
-    MONGO_SLAVE.flush_sync()
+    MONGO_SLAVE.flush_snapshot()
     for_caller.s2c_sync_troop(fd, {troopInfo = troop:get_pto_info()})
 	for_caller.s2c_cancel_march(fd, {
 		troopIdx = packet.troopIdx,

@@ -77,6 +77,13 @@ local function on_req_all_hero_base_info(fd)
 	for_caller.s2c_req_all_hero_base_info(fd, {heroInfoList = hero_info_list})
 end
 
+-- USER_MGR dispatches this only after the final persistence ACK.
+function on_user_logout(user_id)
+    user_hero_tbl[user_id] = nil
+    ORM.unbind(MONGO_SLAVE.COL.USER_HERO, user_id)
+end
+
 function __init__()
+    EVENT.listen(CONST.EVENT.ON_USER_LOGOUT)
 	for_maker.c2s_req_all_hero_base_info = on_req_all_hero_base_info
 end

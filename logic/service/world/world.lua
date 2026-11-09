@@ -8,6 +8,12 @@ function CMD.shutdown()
 	skynet.fork(skynet.exit)
 end
 
+function CMD.performance_stats()
+    local stats = AOI_MGR.performance_stats()
+    if stats.enabled then stats.navigation = MAP_MGR.navigation_stats() end
+    return stats
+end
+
 function CMD.hot_update(_, path_list)
 	return hot_update(path_list)
 end

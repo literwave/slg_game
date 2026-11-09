@@ -13,6 +13,7 @@ local classes = {}
 local nodes = setmetatable({}, {__mode = "k"})	-- obj -> {cls, vals, parent, col, key, dirty}
 local docs = {}		-- col -> key -> root
 local dirty_list = {}
+local dirty_head, dirty_tail = 1, 0
 
 local function resolve(def, name)
 	local t = def.type
@@ -61,7 +62,8 @@ local function mark_dirty(obj)
 		return
 	end
 	n.dirty = true
-	dirty_list[#dirty_list + 1] = obj
+	dirty_tail = dirty_tail + 1
+	dirty_list[dirty_tail] = obj
 	if M.on_dirty then
 		M.on_dirty()
 	end
@@ -221,14 +223,30 @@ function M.dump(obj)
 end
 
 -- 取走所有脏文档：{ {col, key, dat}, ... }
-function M.drain()
-	local list = dirty_list
-	dirty_list = {}
+function M.has_dirty()
+	return dirty_head <= dirty_tail
+end
+
+function M.drain(limit)
+	assert(limit == nil or type(limit) == "number" and limit >= 0 and limit % 1 == 0,
+		"orm.drain limit must be a non-negative integer")
 	local ret = {}
-	for i, root in ipairs(list) do
+	local last = limit and math.min(dirty_tail, dirty_head + limit - 1) or dirty_tail
+	-- Snapshot the whole selected batch before removing any root. A serialization
+	-- error must leave earlier roots dirty too, since no batch reached the caller.
+	for index = dirty_head, last do
+		local root = dirty_list[index]
 		local n = nodes[root]
-		n.dirty = nil
-		ret[i] = {col = n.col, key = n.key, dat = M.dump(root)}
+		ret[#ret + 1] = {col = n.col, key = n.key, dat = M.dump(root)}
+	end
+	for index = dirty_head, last do
+		nodes[dirty_list[index]].dirty = nil
+		dirty_list[index] = nil
+	end
+	dirty_head = last + 1
+	if dirty_head > dirty_tail then
+		dirty_list = {}
+		dirty_head, dirty_tail = 1, 0
 	end
 	return ret
 end

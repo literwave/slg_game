@@ -64,21 +64,58 @@ kicking_user = {}
 ignore_heart_beat = {}
 
 function disconnect(fd, user_id)
-	local user = get_user_by_id(user_id)
-	if not user then
-		return
-	end
-	user:on_logout()
-	-- 各模块在这里存盘解绑自己的数据，所以要在玩家对象释放前发
-	EVENT.fire(CONST.EVENT.ON_USER_LOGOUT, user_id, fd)
-	-- 保存失败时不能释放玩家，让重登把未保存的新状态当成旧存档重新加载。
-	MONGO_SLAVE.flush_sync()
-	ORM.unbind(MONGO_SLAVE.COL.USER_INFO, user_id)
-	all_user_tbl[user_id] = nil
-	del_user_id_by_vfd(fd)
-	user_id_to_fd[user_id] = nil
-	kicking_user[user_id] = nil
-	ignore_heart_beat[user_id] = nil
+    local user = get_user_by_id(user_id)
+    if not user or get_fd_by_user_id(user_id) ~= fd then return false end
+    user:on_logout()
+    ACTIVITY_MGR.on_user_logout(user_id)
+    -- No module may release its cache until the final persistence ACK succeeds.
+    local ok, result = pcall(MONGO_SLAVE.flush_snapshot)
+    if not ok or result ~= true then
+        kicking_user[user_id] = nil
+        error(ok and "logout persistence was not acknowledged" or result, 0)
+    end
+    -- A suspended save must never release a replacement session's objects.
+    if get_user_by_id(user_id) ~= user or get_fd_by_user_id(user_id) ~= fd then return false end
+    -- Local logout listeners only release caches; this phase must not yield.
+    EVENT.dispatch(CONST.EVENT.ON_USER_LOGOUT, user_id, fd)
+    ORM.unbind(MONGO_SLAVE.COL.USER_INFO, user_id)
+    all_user_tbl[user_id] = nil
+    del_user_id_by_vfd(fd)
+    user_id_to_fd[user_id] = nil
+    kicking_user[user_id] = nil
+    ignore_heart_beat[user_id] = nil
+    -- Cross-service notification may yield, after local state is fully released.
+    EVENT.emit(CONST.EVENT.ON_USER_LOGOUT, user_id, fd)
+    return true
+end
+
+-- Offline world jobs borrow the same caches without opening a player session.
+-- Release only after their final ACK, without online-time settlement or events.
+function release_offline_cache(user_id)
+    if get_fd_by_user_id(user_id) then return end
+    local user, documents = get_user_by_id(user_id), {}
+    for _, col in ipairs({MONGO_SLAVE.COL.USER_INFO, MONGO_SLAVE.COL.USER_HERO,
+        MONGO_SLAVE.COL.USER_ITEM, MONGO_SLAVE.COL.USER_BUILD, MONGO_SLAVE.COL.USER_TROOP,
+        MONGO_SLAVE.COL.USER_TASK, MONGO_SLAVE.COL.USER_SKILL, MONGO_SLAVE.COL.USER_REPORT}) do
+        local doc = ORM.get(col, user_id)
+        if doc then documents[col] = doc end
+    end
+    if not user and not next(documents) then return end
+    ACTIVITY_MGR.on_user_logout(user_id) -- derived scores only, no logout event
+    assert(MONGO_SLAVE.flush_snapshot() == true, "offline persistence was not acknowledged")
+    if get_fd_by_user_id(user_id) or get_user_by_id(user_id) ~= user then return end
+    for col, doc in pairs(documents) do if ORM.get(col, user_id) ~= doc then return end end
+    -- These hooks only drop local document bindings/indexes and never yield.
+    HERO_MGR.on_user_logout(user_id)
+    ITEM_MGR.on_user_logout(user_id)
+    BUILD_MGR.on_user_logout(user_id)
+    TROOP_MGR.on_user_logout(user_id)
+    TASK_MGR.on_user_logout(user_id)
+    SKILL_MGR.on_user_logout(user_id)
+    REPORT_MGR.on_user_logout(user_id)
+    ORM.unbind(MONGO_SLAVE.COL.USER_INFO, user_id)
+    all_user_tbl[user_id] = nil
+    kicking_user[user_id], ignore_heart_beat[user_id] = nil, nil
 end
 
 function is_new_user(user_id)
@@ -175,8 +212,13 @@ function dispatch_cross(user_id, cross)
 end
 
 function kick_user(fd, user_id, from_heart_beat)
+    -- Event callbacks run outside the client queue; route kicks through it too.
+    skynet.send(skynet.self(), "lua", "kick_user", fd, user_id, from_heart_beat)
+end
+
+function kick_user_in_queue(fd, user_id, from_heart_beat)
 	local user = get_user_by_id(user_id)
-	if not user then
+	if not user or get_fd_by_user_id(user_id) ~= fd then
 		kicking_user[user_id] = nil
 		return
 	end
@@ -189,8 +231,8 @@ function kick_user(fd, user_id, from_heart_beat)
 		end
 	end
 	local gate_srv = user:get_gate_srv()
-	disconnect(fd, user_id)
-	if gate_srv and fd then
+	local disconnected = disconnect(fd, user_id)
+	if disconnected and gate_srv and fd then
 		skynet.send(gate_srv, "lua", "kick", fd)
 	end
 end
@@ -203,7 +245,7 @@ local function check_heart_beat()
 			and now - last_heart_beat_time >= CONST.USER_HEART_BEAT_TIMEOUT then
 			kicking_user[user_id] = true
 			local fd = get_fd_by_user_id(user_id)
-			EVENT.emit(CONST.EVENT.KICK_USER, fd, user_id, true)
+			skynet.send(skynet.self(), "lua", "kick_user", fd, user_id, true)
 		end
 	end
 	skynet.timeout(CONST.USER_HEART_BEAT_CHECK_INTERVAL * 100, check_heart_beat)
@@ -259,35 +301,42 @@ end
 
 -- 在目标玩家所属的 agent 读取。离线查询只读原始快照，不创建或绑定玩家对象。
 function get_public_profile(user_id)
-	local user = get_user_by_id(user_id)
-	if user then
-		return {
-			uid = user_id, name = user:get_name(), headIcon = user:get_head_icon(),
-			sex = user:get_sex(), level = user:get_level(), power = user:get_power(),
-			cityLevel = user:get_city_level(), offlineTime = get_fd_by_user_id(user_id) and 0 or public_offline_time(user._data),
-		}
-	end
-	local raw = MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_INFO, user_id)
-	if not raw or not raw._user_id then return end
-	local heroes = MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_HERO, user_id) or {}
-	local builds = MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_BUILD, user_id) or {}
-	-- 数据库读取会让出协程；若此时玩家上线，重新取实时资料。
-	if get_user_by_id(user_id) then return get_public_profile(user_id) end
-	local power = 0
-	for key, hero in pairs(heroes._heroes or {}) do
-		local conf = DATA_COMMON.get_hero_info_by_type(hero._hero_type or tonumber(key))
-		if conf then
-			power = power + ((conf.Attack or 0) + (conf.Hp or 0) + (conf.Defense or 0) + (conf.Speed or 0) + (conf.Crit or 0)) * (hero._level or 0)
-		end
-	end
-	local bid = DATA_COMMON.get_main_city_bid()
-	local bag = builds._builds or {}
-	local city = bag[bid] or bag[tostring(bid)]
-	return {
-		uid = user_id, name = raw._name or "", headIcon = raw._head_icon or 0,
-		sex = raw._sex or 0, level = raw._level or 0, power = power,
-		cityLevel = city and city._level or 0, offlineTime = public_offline_time(raw),
-	}
+    -- Public reads never acquire the target player's queue: two players can
+    -- inspect each other. They also never call getters that lazy-bind data.
+    for _ = 1, 3 do
+        local user, fd = get_user_by_id(user_id), get_fd_by_user_id(user_id)
+        local raw = user and user._data or MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_INFO, user_id)
+        if not raw or not raw._user_id then return end
+        local heroes = user and ORM.get(MONGO_SLAVE.COL.USER_HERO, user_id)
+        local builds = user and ORM.get(MONGO_SLAVE.COL.USER_BUILD, user_id)
+        heroes = heroes or MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_HERO, user_id) or {}
+        builds = builds or MONGO_SLAVE.common_load_single(MONGO_SLAVE.COL.USER_BUILD, user_id) or {}
+        if get_user_by_id(user_id) == user and get_fd_by_user_id(user_id) == fd then
+            -- A module may have loaded/updated its cache during a database wait.
+            if user then
+                heroes = ORM.get(MONGO_SLAVE.COL.USER_HERO, user_id) or heroes
+                builds = ORM.get(MONGO_SLAVE.COL.USER_BUILD, user_id) or builds
+            end
+            local power = 0
+            for key, hero in pairs(heroes._heroes or {}) do
+                local conf = DATA_COMMON.get_hero_info_by_type(hero._hero_type or tonumber(key))
+                if conf then
+                    power = power + ((conf.Attack or 0) + (conf.Hp or 0) + (conf.Defense or 0)
+                        + (conf.Speed or 0) + (conf.Crit or 0)) * (hero._level or 0)
+                end
+            end
+            local bid, bag = DATA_COMMON.get_main_city_bid(), builds._builds or {}
+            local city = bag[bid] or bag[tostring(bid)]
+            return {
+                uid = user_id, name = user and user:get_name() or raw._name or "",
+                headIcon = user and user:get_head_icon() or raw._head_icon or 0,
+                sex = user and user:get_sex() or raw._sex or 0,
+                level = user and user:get_level() or raw._level or 0, power = power,
+                cityLevel = city and city._level or 0, offlineTime = fd and 0 or public_offline_time(raw),
+            }
+        end
+    end
+    -- Repeated session churn is retried by a later request, never a stale reply.
 end
 
 local function on_req_other_user(fd, packet)

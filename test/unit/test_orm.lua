@@ -119,6 +119,89 @@ function T.removing_child_by_nil()
 	assert(doc and doc.dat._res_tbl["2"] == nil)
 end
 
+function T.bounded_drain_keeps_dirty_identity_and_fifo_order()
+	orm.drain()
+	local first, first_key = new_user()
+	local second, second_key = new_user()
+	local third, third_key = new_user()
+	first._level = 1
+	second._level = 2
+	third._level = 3
+	assert(orm.has_dirty())
+	assert(#orm.drain(0) == 0 and orm.has_dirty())
+	local list = orm.drain(1)
+	assert(#list == 1 and list[1].key == first_key and list[1].dat._level == 1)
+	second._level = 20 -- still queued: update the existing pending document, not its order
+	first._level = 10 -- already drained: a new dirty entry belongs at the tail
+	list = orm.drain(2)
+	assert(#list == 2 and list[1].key == second_key and list[1].dat._level == 20)
+	assert(list[2].key == third_key and orm.has_dirty())
+	list = orm.drain()
+	assert(#list == 1 and list[1].key == first_key and list[1].dat._level == 10)
+	assert(not orm.has_dirty() and #orm.drain(1) == 0)
+	first._level = 11
+	assert(orm.has_dirty() and orm.drain(1)[1].dat._level == 11)
+	assert(not orm.has_dirty())
+	for _, invalid in ipairs({-1, 1.5, "1"}) do assert(not pcall(orm.drain, invalid)) end
+end
+
+function T.bounded_drain_only_dumps_the_requested_roots()
+	orm.drain()
+	for i = 1, 130 do local user = new_user(); user._name = "user" .. i end
+	local old_dump, dumps = orm.dump, 0
+	orm.dump = function(obj) dumps = dumps + 1; return old_dump(obj) end
+	-- Every user also contains nested structs/maps; compare a fixed one-root cost
+	-- with the entire backlog left dirty, rather than assuming a schema size.
+	local ok, err = pcall(function()
+		assert(#orm.drain(1) == 1)
+		local per_root = dumps
+		dumps = 0
+		assert(#orm.drain(64) == 64 and dumps == per_root * 64)
+		assert(orm.has_dirty() and #orm.drain() == 65 and not orm.has_dirty())
+	end)
+	orm.dump = old_dump
+	assert(ok, err)
+end
+
+function T.bounded_drain_serialization_failure_keeps_the_entire_batch_dirty()
+	orm.drain()
+	local first, first_key = new_user()
+	local second, second_key = new_user()
+	first._level = 1
+	second._level = 2
+	local old_dump = orm.dump
+	orm.dump = function(obj)
+		if obj == second then error("cannot serialize second document") end
+		return old_dump(obj)
+	end
+	local ok, err = pcall(orm.drain, 2)
+	orm.dump = old_dump
+	assert(not ok and tostring(err):find("cannot serialize second document", 1, true))
+	assert(orm.has_dirty())
+	first._level = 10
+	local retry = orm.drain(2)
+	assert(#retry == 2 and retry[1].key == first_key and retry[1].dat._level == 10)
+	assert(retry[2].key == second_key and retry[2].dat._level == 2 and not orm.has_dirty())
+end
+
+function T.unbind_after_partial_flush_keeps_logout_snapshot_pending()
+	orm.drain()
+	local users, keys = {}, {}
+	for i = 1, 65 do
+		users[i], keys[i] = new_user()
+		users[i]._level = i
+	end
+	assert(#orm.drain(64) == 64 and orm.has_dirty())
+	-- A logout module may unbind after a bounded background flush. The final
+	-- shutdown/disconnect barrier must still find that last document in the queue.
+	orm.unbind(COL, keys[65])
+	assert(orm.get(COL, keys[65]) == nil)
+	users[65]._level = 66
+	local final = orm.drain()
+	assert(#final == 1 and final[1].key == keys[65] and final[1].dat._level == 66)
+	assert(not orm.has_dirty())
+end
+
 function T.report_nested_roundtrip()
 	local doc = orm.new("user_report_doc", {})
 	orm.bind(doc, "unit_report", 1)

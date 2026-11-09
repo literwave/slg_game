@@ -103,7 +103,7 @@ local function fixture(options)
     end
     local shared = {CONST = C, require = function(name) if name == "skynet" then return sky end; return require(name) end,
         TIME = {now = function() return now end, os_bj_sec = function() return now end},
-        MONGO_SLAVE = {COL = {USER_REPORT = "reports"}, flush_sync = function() flushes = flushes + 1 end},
+        MONGO_SLAVE = {COL = {USER_REPORT = "reports"}, flush_snapshot = function() flushes = flushes + 1; return true end},
         ORM = {CLS_USER_REPORT_DOC = "report", load = function() return saved_reports end},
         DATA_COMMON = {TROOP_STATE = {IN_CITY=0, MARCH=1, STAY=2, GATHER=3, SIEGE=4}, TARGET_TYPE = {ATTACK_CITY = 5, ATTACK_MONSTER = 2, OCCUPY_RES_LAND = 3, RETURN_CITY = 1, MOVE = 4, REDEPLOY=6},
             REPORT_TYPE = {ATTACK_CITY = 5}, get_march_speed = function() return 1 end},
@@ -348,6 +348,66 @@ function T.city_lookup_failure_keeps_original_receipt_for_stay_retry()
     assert(troop:get_target_type()==5 and troop._data._march_serial==1 and reports._next_id==1)
     fault(nil); finish_siege(S)
     assert(troop:get_target_type()==6 and reports._next_id==1 and troop.positions[1]._soldier_cnt==80)
+end
+
+
+local function has_battle_push(pushes)
+    for _, push in ipairs(pushes) do
+        if push.name=='s2c_battle_start' or push.name=='s2c_battle_result' then return true end
+    end
+    return false
+end
+
+function T.city_battle_and_receipt_ack_wait_for_each_player_snapshot()
+    local S,troop,reports,pushes,calls,_,_,stats=fixture()
+    local snapshots=0
+    S.MONGO_SLAVE.flush_snapshot=function()
+        snapshots=snapshots+1
+        coroutine.yield('snapshot_ack')
+        return true
+    end
+    local co=coroutine.create(function()
+        return S.BATTLE_MGR.attack_city(S.USER_MGR.try_init_user(1),troop)
+    end)
+    local ok,why=coroutine.resume(co)
+    assert(ok and why=='snapshot_ack' and #calls==0 and reports._next_id==0,
+        'world battle cannot start before the march serial is persisted')
+    ok,why=coroutine.resume(co)
+    assert(ok and why=='snapshot_ack' and calls[1]=='attack_city' and reports._next_id==1)
+    assert(troop.positions[1]._soldier_cnt==100 and not has_battle_push(pushes),
+        'report must be acknowledged before changing troop losses')
+    ok,why=coroutine.resume(co)
+    assert(ok and why=='snapshot_ack' and troop.positions[1]._soldier_cnt==80 and not has_battle_push(pushes),
+        'battle result cannot be pushed before troop losses and receipt are persisted')
+    assert(coroutine.resume(co) and coroutine.status(co)=='dead' and snapshots==3)
+    assert(pushes[#pushes].name=='s2c_battle_result')
+    troop:set_march({state=1,target_type=1,target_id=0,path={{_x=8,_y=0},{_x=0,_y=0}},start_time=10,end_time=100})
+    local ack=coroutine.create(function() S.MARCH_MGR.on_arrive(1,1,100) end)
+    ok,why=coroutine.resume(ack)
+    local _,acked=stats()
+    assert(ok and why=='snapshot_ack' and acked==0 and troop._data._siege_city==501,
+        'world receipt cannot be released before the player transition is acknowledged')
+    assert(coroutine.resume(ack) and coroutine.status(ack)=='dead')
+    _,acked=stats()
+    assert(acked==1 and troop._data._siege_city==0)
+end
+
+function T.failed_battle_snapshot_does_not_publish_and_reuses_receipt_on_retry()
+    local S,troop,reports,pushes=fixture()
+    local saves=0
+    S.MONGO_SLAVE.flush_snapshot=function()
+        saves=saves+1
+        if saves==3 then error('snapshot failed') end
+        return true
+    end
+    local user=S.USER_MGR.try_init_user(1)
+    assert(not pcall(S.BATTLE_MGR.attack_city,user,troop))
+    assert(reports._next_id==1 and not has_battle_push(pushes) and troop._data._siege_city==501)
+    S.MONGO_SLAVE.flush_snapshot=function() return true end
+    assert(S.BATTLE_MGR.attack_city(user,troop))
+    assert(reports._next_id==1 and troop.positions[1]._soldier_cnt==80 and troop.positions[1]._hurt_cnt==30,
+        'retry must reuse the original receipt rather than applying losses twice')
+    assert(pushes[#pushes].name=='s2c_battle_result')
 end
 
 return T

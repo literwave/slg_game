@@ -1,18 +1,16 @@
 local zset = require "zset"
 
-server_doc = nil
+-- Each persisted document is one (rank_type, user_id), independent of board size.
+rank_entries = {}
 -- [rank_type] = zset，成员是 user_id 的字符串
 rank_tbl = {}
 
 local function entry_tbl(rank_type)
-	if rank_type == DATA_COMMON.RANK_TYPE.POWER then
-		return server_doc._power_tbl
-	end
-	if rank_type == DATA_COMMON.RANK_TYPE.CITY_LEVEL then
-		return server_doc._city_tbl
-	end
-	if rank_type == DATA_COMMON.RANK_TYPE.KILL then return server_doc._kill_tbl end
-	if rank_type == DATA_COMMON.RANK_TYPE.ALLIANCE_POWER then return server_doc._alliance_power_tbl end
+	return rank_entries[rank_type]
+end
+
+local function doc_key(rank_type, user_id)
+	return string.format("%d:%d", rank_type, user_id)
 end
 
 -- 同分时 zset 的反向排名里 ts 小的靠前，传达到分数的时间，先到的排前面
@@ -30,26 +28,29 @@ function set_score(rank_type, user_id, score, name, head_icon)
 		if tbl[user_id] then
 			tbl[user_id] = nil
 			z:rem(tostring(user_id))
+			MONGO_SLAVE.del_doc(MONGO_SLAVE.COL.RANK_ENTRY, doc_key(rank_type, user_id))
 		end
 		return
 	end
 	local entry = tbl[user_id]
 	if entry and entry._score == score then
-		if name then
-			entry._name = name
+		if (name == nil or name == entry._name) and (head_icon == nil or head_icon == entry._head_icon) then
+			return
 		end
-		if head_icon then
-			entry._head_icon = head_icon
-		end
-		return
 	end
-	tbl[user_id] = {
+	-- Never mutate a queued snapshot: an earlier save may be awaiting its ACK.
+	-- Save/delete/re-add all go through the same ordered producer queue.
+	local updated = {
+		_rank_type = rank_type,
+		_user_id = user_id,
 		_score = score,
-		_time = TIME.os_bj_sec(),
+		_time = entry and entry._score == score and entry._time or TIME.os_bj_sec(),
 		_name = name or (entry and entry._name) or "",
 		_head_icon = head_icon or (entry and entry._head_icon) or 0,
 	}
-	zadd(z, user_id, tbl[user_id])
+	tbl[user_id] = updated
+	if not entry or entry._score ~= score then zadd(z, user_id, updated) end
+	MONGO_SLAVE.save_doc(MONGO_SLAVE.COL.RANK_ENTRY, doc_key(rank_type, user_id), updated)
 end
 
 local function item_of(rank, user_id, entry)
@@ -101,7 +102,18 @@ end
 
 function __init__()
 	MONGO_SLAVE.system_startup()
-	server_doc = ORM.load(MONGO_SLAVE.COL.SERVER, 1, ORM.CLS_SERVER_DATA)
+	-- Startup reads only the new collection; old SERVER/1 data is not migrated.
+	local saved = MONGO_SLAVE.common_load_tbl(MONGO_SLAVE.COL.RANK_ENTRY)
+	for _, rank_type in pairs(DATA_COMMON.RANK_TYPE) do
+		rank_entries[rank_type] = {}
+	end
+	for key, entry in pairs(saved) do
+		local tbl = rank_entries[entry._rank_type]
+		assert(tbl and key == doc_key(entry._rank_type, entry._user_id), "invalid rank entry identity")
+		assert(type(entry._score) == "number" and type(entry._time) == "number", "invalid rank entry score/time")
+		assert(type(entry._name) == "string" and type(entry._head_icon) == "number", "invalid rank entry profile")
+		if entry._score > 0 then tbl[entry._user_id] = entry end
+	end
 	for _, rank_type in pairs(DATA_COMMON.RANK_TYPE) do
 		build_rank(rank_type)
 	end

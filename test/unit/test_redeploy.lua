@@ -30,7 +30,13 @@ local function fixture(saved, troop_doc)
         MONGO_SLAVE={COL={CITY='city',USER_TROOP='troop'},
             common_load_tbl=function(kind) return kind=='city' and siege.copy(F.saved) or {[9]=doc} end,
             save_doc=function(_,id,data) F.writes[id]=siege.copy(data) end,
-            flush_sync=function() F.flushes=F.flushes+1; if F.fail_db then error('db unavailable') end end},
+            flush_sync=function() F.flushes=F.flushes+1; if F.fail_db then error('db unavailable') end; return true end,
+            flush_snapshot=function()
+                F.flushes=F.flushes+1
+                if F.snapshot then F.snapshot() end
+                if F.fail_db then error('db unavailable') end
+                return true
+            end},
         MAP_MGR={set_alliance_city_owner=function() end,alliance_cities={{id=501,x=12,y=0,city_type=4,level=5,name='试验关'}}},
         ENCOUNTER_MGR={alliance_of=F.members, set_user_alliance=function(uid,aid) F.members[uid]=aid end},
         AOI_MGR={upsert_alliance_city=function() end, city_watchers=function() return {[77]=true} end,
@@ -237,7 +243,7 @@ function T.aoi_late_park_does_not_stop_a_newer_march()
         DATA_COMMON={ENTITY_TYPE={TROOP=2},TROOP_STATE={MARCH=1,STAY=2}},
         MARCH_PATH=load_mod('common/march_path.lua',{}), TIME={now=function() return 100 end}, agent_list={},
         ENCOUNTER_MGR={unindex=function() end,index_at=function() end,touch=function() end,clear_flee=function() end},
-        require=function(name) if name=='skynet' then return {} end; return require(name) end}
+        require=function(name) if name=='skynet' then return {getenv=function() return nil end} end; return require(name) end}
     local aoi=load_mod('logic/service/world/module/aoi/mgr.lua',shared)
     assert(aoi.start_march({user_id=9,troop_idx=1,target_type=4,serial=2,
         path={{_x=12,_y=0},{_x=24,_y=0}},start_time=100,end_time=120}))
@@ -256,4 +262,32 @@ function T.deploy_count_and_target_type_survive_real_wire_encoding()
     back=pb.decode('World.c2s_march',pb.encode('World.c2s_march',{troopIdx=1,targetType=6,targetId=packet.cityInfo.entityId,targetPos={x=522,y=269}}))
     assert(back.targetType==6 and back.targetId==packet.cityInfo.entityId)
 end
+
+function T.deployment_waits_for_snapshot_ack_before_world_start_and_client_reply()
+    local f=fixture()
+    f.snapshot=function() coroutine.yield('snapshot_ack') end
+    local co=coroutine.create(f.order)
+    local ok,why=coroutine.resume(co)
+    assert(ok and why=='snapshot_ack' and #f.starts==0 and #f.pushes==0,
+        'world cannot register deployment before its new serial is persisted')
+    ok,why=coroutine.resume(co)
+    assert(ok and why=='snapshot_ack' and #f.starts==1 and #f.pushes==0,
+        'client success must wait for the final player snapshot')
+    assert(coroutine.resume(co) and coroutine.status(co)=='dead')
+    assert(f.pushes[#f.pushes].name=='s2c_march')
+end
+
+function T.deployment_arrival_waits_for_snapshot_ack_before_world_ledger()
+    local f=fixture(); f.order()
+    local previous_pushes=#f.pushes
+    f.snapshot=function() coroutine.yield('snapshot_ack') end
+    local co=coroutine.create(f.arrive)
+    local ok,why=coroutine.resume(co)
+    assert(ok and why=='snapshot_ack' and f.count()==0 and f.parks==0,
+        'world cannot count a stationed troop before its arrival state is persisted')
+    assert(#f.pushes==previous_pushes)
+    assert(coroutine.resume(co) and coroutine.status(co)=='dead')
+    assert(f.count()==1 and f.parks==1 and #f.pushes>previous_pushes)
+end
+
 return T

@@ -195,7 +195,7 @@ function attack_city(user, troop)
 	local uid, id = user:get_user_id(), troop:get_target_id()
 	local seq = troop._data._march_serial
 	-- 先保存出征流水号，world 已结算而 agent 断开时仍能取回同一结果。
-	MONGO_SLAVE.flush_sync()
+	MONGO_SLAVE.flush_snapshot()
 	local receipt, err = MARCH_MGR.world_call("attack_city", id, {
 		uid = uid, troop_idx = troop:get_troop_idx(), seq = seq, city_round = troop._data._siege_round or 0,
 		name = user:get_name(), side = troop_side(user, troop),
@@ -206,7 +206,7 @@ function attack_city(user, troop)
 	end
 	if receipt.phase == "wall" then
         troop._data._siege_city, troop._data._siege_seq = id, seq
-        MONGO_SLAVE.flush_sync()
+        MONGO_SLAVE.flush_snapshot()
         return receipt
     end
 	local res, atk, def = receipt.result, receipt.atk, receipt.def
@@ -230,13 +230,13 @@ function attack_city(user, troop)
 		_max_round = res.max_round, _actions = report_actions(res.actions),
 	})
 	-- 战报先落盘再结束行军；中途失败仍可按来源键取回原战报。
-	MONGO_SLAVE.flush_sync()
+	MONGO_SLAVE.flush_snapshot()
 	for _, unit in ipairs(atk.units) do
 		local after = atk_after[unit.pos]
 		troop:set_pos(unit.pos, unit.cfg_id, after.count, after.hurt)
 	end
 	troop._data._siege_city, troop._data._siege_seq = id, seq
-	MONGO_SLAVE.flush_sync()
+	MONGO_SLAVE.flush_snapshot()
 	local fd = USER_MGR.get_fd_by_user_id(uid)
 	if fd then
 		for_caller.s2c_sync_troop(fd, {troopInfo = troop:get_pto_info()})

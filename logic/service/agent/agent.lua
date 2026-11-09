@@ -4,9 +4,12 @@ local protobuf = require "protobuf"
 
 local CMD = {}
 local RPC_CMD = {}
+local is_closing = false
+local offline_retries = {}
+local pending_continuations = {}
 
 local user_queues = {
-	-- [userId] = queue(),
+	-- [userId] = {lock = queue(), active = running and waiting calls},
 }
 
 skynet.register_protocol {
@@ -40,13 +43,57 @@ local function decode_pack(packet)
 	return msg, pto_name
 end
 
-local function get_user_queue(user_id)
-	local user_queue = user_queues[user_id]
-	if not user_queue then
-		user_queue = queue()
-		user_queues[user_id] = user_queue
-	end
-	return user_queue
+local get_user_queue
+local function retry_offline_cleanup(user_id, err)
+    if is_closing then return end
+    local retry = offline_retries[user_id]
+    if not retry then
+        retry = {}
+        offline_retries[user_id] = retry
+        skynet.error("offline cache retained for persistence retry: " .. tostring(err))
+    end
+    if retry.scheduled then return end
+    retry.scheduled = true
+    skynet.timeout(100, function()
+        if is_closing or offline_retries[user_id] ~= retry then return end
+        retry.scheduled = false
+        local ok, failure = pcall(function() get_user_queue(user_id)(function() end) end)
+        if not ok then retry_offline_cleanup(user_id, failure) end
+    end)
+end
+
+get_user_queue = function(user_id, allow_closing)
+    assert(not is_closing or allow_closing, "server is closing")
+    local entry = user_queues[user_id]
+    if not entry then
+        entry = {lock = queue(), active = 0, depth = 0}
+        entry.run = function(fn, ...)
+            -- Count waiters too; keep one lock until the last call has finished.
+            entry.active = entry.active + 1
+            local result = table.pack(pcall(entry.lock, function(...)
+                entry.depth = entry.depth + 1
+                local outcome = table.pack(pcall(fn, ...))
+                entry.depth = entry.depth - 1
+                if entry.depth == 0 then
+                    if not USER_MGR.get_fd_by_user_id(user_id) then
+                        local saved, failure = pcall(USER_MGR.release_offline_cache, user_id)
+                        if saved then offline_retries[user_id] = nil
+                        else retry_offline_cleanup(user_id, failure) end
+                    else
+                        offline_retries[user_id] = nil
+                    end
+                end
+                if not outcome[1] then error(outcome[2], 0) end
+                return table.unpack(outcome, 2, outcome.n)
+            end, ...))
+            entry.active = entry.active - 1
+            if entry.active == 0 and user_queues[user_id] == entry then user_queues[user_id] = nil end
+            if not result[1] then error(result[2], 0) end
+            return table.unpack(result, 2, result.n)
+        end
+        user_queues[user_id] = entry
+    end
+    return entry.run
 end
 
 -- 顶号：旧连接可能在另一个 gate_worker 上，先解绑旧 fd 再踢，之后旧 fd 的 disconnect 会被忽略
@@ -87,12 +134,13 @@ local function do_login(gate_srv, fd, user_id, addr, account, server_id, token)
 	USER_MGR.dispatch_cross(user_id, cross)
 end
 
-local is_closing = false
-
 -- 和协议、下线走同一个玩家队列，避免登录和旧连接下线交错
 function CMD.login(gate_srv, fd, user_id, addr, account, server_id, token)
 	assert(not is_closing, "server is closing")
-	return get_user_queue(user_id)(do_login, gate_srv, fd, user_id, addr, account, server_id, token)
+    return get_user_queue(user_id)(function(...)
+        assert(not is_closing, "server is closing")
+        return do_login(...)
+    end, gate_srv, fd, user_id, addr, account, server_id, token)
 end
 
 local function do_disconnect(fd, user_id)
@@ -103,14 +151,34 @@ local function do_disconnect(fd, user_id)
 		end
 		return
 	end
-	USER_MGR.disconnect(fd, user_id)
-	-- 新连接的消息要等 login 返回后 worker 才会转发，这里删掉不会和新登录并发
-	user_queues[user_id] = nil
+	return USER_MGR.disconnect(fd, user_id)
 end
 
 -- 进玩家的消息队列里下线，等正在处理的协议跑完再存盘
 function CMD.disconnect(fd, user_id)
-	get_user_queue(user_id)(do_disconnect, fd, user_id)
+    return get_user_queue(user_id)(do_disconnect, fd, user_id)
+end
+
+function CMD.kick_user(fd, user_id, from_heart_beat)
+    return get_user_queue(user_id)(USER_MGR.kick_user_in_queue, fd, user_id, from_heart_beat)
+end
+
+function CMD.performance_stats()
+    if skynet.getenv("performance_metrics") ~= "1" then return {enabled = false} end
+    local function size(tbl)
+        local n = 0
+        for _ in pairs(tbl) do n = n + 1 end
+        return n
+    end
+    local active_calls = 0
+    for _, entry in pairs(user_queues) do active_calls = active_calls + entry.active end
+    return {enabled = true,
+        users = size(USER_MGR.all_user_tbl), hero_users = size(HERO_MGR.user_hero_tbl),
+        item_users = size(ITEM_MGR.all_item_tbl), item_uid_users = size(ITEM_MGR.all_item_uid_tbl),
+        item_kind_users = size(ITEM_MGR.all_item_kind_tbl),
+        player_queues = size(user_queues), player_queue_calls = active_calls,
+        offline_cache_retries = size(offline_retries),
+        pending_continuations = size(pending_continuations)}
 end
 
 function CMD.hot_update(path_list)
@@ -165,15 +233,27 @@ function CMD.encounter_snap(user_id, troop_idx)
 	end)
 end
 
+local function consume_continuation(item)
+    if not pending_continuations[item] or item.claimed then return end
+    item.claimed = true
+    -- This narrowly admits an already accepted continuation while closing.
+    local ok, err = pcall(function() get_user_queue(item.user_id, true)(item.run) end)
+    pending_continuations[item] = nil
+    item.run = nil
+    if not ok then error(err, 0) end
+end
+
 function CMD.encounter_result(user_id, troop_idx, pack)
-	local defer = get_user_queue(user_id)(function()
-		return BATTLE_MGR.on_encounter(user_id, troop_idx, pack)
-	end)
-	if defer then
-		skynet.timeout(0, function()
-			get_user_queue(user_id)(defer)
-		end)
-	end
+    get_user_queue(user_id)(function()
+        local defer = BATTLE_MGR.on_encounter(user_id, troop_idx, pack)
+        if defer then
+            -- Register before the outer queue can yield for its offline save ACK.
+            -- The battle continuation re-reads the troop and checks its stamp.
+            local item = {user_id = user_id, run = defer}
+            pending_continuations[item] = true
+            skynet.timeout(0, function() consume_continuation(item) end)
+        end
+    end)
 end
 
 function CMD.aoi_push(user_id, pack)
@@ -192,37 +272,48 @@ function CMD.city_push(user_id, pto_name, packet)
 end
 
 function CMD.shutdown()
-	is_closing = true
-	local online = {}
-	for user_id, fd in pairs(USER_MGR.user_id_to_fd) do
-		online[user_id] = fd
-	end
-	for user_id, fd in pairs(online) do
-		CMD.disconnect(fd, user_id)
-	end
-	MONGO_SLAVE.flush_sync()
-	skynet.fork(skynet.exit)
+    is_closing = true
+    -- Cold logins/offline jobs can be suspended before a connection is bound.
+    -- Drain every existing queue, not just the currently connected player map.
+    local pending = {}
+    for user_id in pairs(user_queues) do pending[user_id] = true end
+    for user_id in pairs(offline_retries) do pending[user_id] = true end
+    for user_id in pairs(USER_MGR.all_user_tbl) do pending[user_id] = true end
+    for user_id in pairs(pending) do get_user_queue(user_id, true)(function() end) end
+    -- An admitted battle may register its immediate follow-up while the first
+    -- barrier waits. A timer may already own it; then wait for that user's queue.
+    while next(pending_continuations) do
+        local batch = {}
+        for item in pairs(pending_continuations) do batch[#batch + 1] = item end
+        for _, item in ipairs(batch) do
+            if pending_continuations[item] then
+                if item.claimed then get_user_queue(item.user_id, true)(function() end)
+                else consume_continuation(item) end
+            end
+        end
+    end
+    local online = {}
+    for user_id, fd in pairs(USER_MGR.user_id_to_fd) do online[user_id] = fd end
+    for user_id, fd in pairs(online) do get_user_queue(user_id, true)(do_disconnect, fd, user_id) end
+    MONGO_SLAVE.flush_sync()
+    skynet.fork(skynet.exit)
 end
 
 local function sub_item_list_recv(id, taddr, user_id, item_list, reason_list)
-	if not ITEM_MGR.check_cost_enough(user_id, item_list) then
+    local user, fd = USER_MGR.get_user_by_id(user_id), USER_MGR.get_fd_by_user_id(user_id)
+    if not user or not fd or not ITEM_MGR.check_cost_enough(user_id, item_list) then
 		skynet.send(taddr, "rpc", id, false)
 		return
 	end
 	local ok = skynet.call(taddr, "rpc", id, true)
-	if not ok then
-		return
-	end
-	assert(ITEM_MGR.del_cost_list(user_id, item_list, reason_list))
+    if not ok or USER_MGR.get_user_by_id(user_id) ~= user or USER_MGR.get_fd_by_user_id(user_id) ~= fd then
+        return
+    end
+    assert(ITEM_MGR.del_cost_list(user_id, item_list, reason_list))
 end
 
 function RPC_CMD.sub_item_list(id, user_id, taddr, item_list, reason_list)
-	if not ITEM_MGR.check_cost_enough(user_id, item_list) then
-		skynet.send(taddr, "rpc", id, false)
-		return
-	end
-	local q = queue()
-	local ok = q(sub_item_list_recv, id, taddr, user_id, item_list, reason_list)
+    return get_user_queue(user_id)(sub_item_list_recv, id, taddr, user_id, item_list, reason_list)
 end
 
 local function error_handler(err)
@@ -258,12 +349,21 @@ skynet.start(function()
 		end
 		-- 分发数据；执行时再确认 fd 仍是当前连接，顶号后旧连接残留的包丢掉
 		local handler = for_maker[pto_name]
+		local queued_at, started_at = skynet.now(), nil
 		local ok, err = xpcall(get_user_queue(user_id), error_handler, function()
 			if USER_MGR.get_fd_by_user_id(user_id) ~= fd then
 				return
 			end
+			started_at = skynet.now()
 			handler(fd, msg)
 		end)
+		local finished_at = skynet.now()
+		if started_at and finished_at - queued_at >= 10 then
+			-- Log timings only: no player data or request payloads.
+			skynet.error(string.format("slow client protocol=%s queue_ms=%d handler_ms=%d ok=%s",
+				tostring(pto_name), (started_at - queued_at) * 10,
+				(finished_at - started_at) * 10, tostring(ok)))
+		end
 		if not ok then
 			LOG._error("userQueue error: %s", err)
 		end

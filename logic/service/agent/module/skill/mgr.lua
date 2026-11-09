@@ -206,7 +206,6 @@ end
 
 function on_user_logout(user_id)
 	if ORM.get(MONGO_SLAVE.COL.USER_SKILL, user_id) then
-		MONGO_SLAVE.flush()
 		ORM.unbind(MONGO_SLAVE.COL.USER_SKILL, user_id)
 	end
 end

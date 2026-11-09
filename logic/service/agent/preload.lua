@@ -10,6 +10,7 @@ local PROTO_FILE_LIST = {
 	"../game_common/pb/login.pb",
 	"../game_common/pb/heartbeat.pb",
 	"../game_common/pb/hero.pb",
+	"../game_common/pb/skill.pb",
 	"../game_common/pb/reward.pb",
 	"../game_common/pb/build.pb",
 	"../game_common/pb/user.pb",

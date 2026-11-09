@@ -84,7 +84,6 @@ end
 
 function on_user_logout(user_id)
 	if ORM.get(MONGO_SLAVE.COL.USER_BUILD, user_id) then
-		MONGO_SLAVE.flush()
 		all_user_build_tbl[user_id] = nil
 		ORM.unbind(MONGO_SLAVE.COL.USER_BUILD, user_id)
 	end

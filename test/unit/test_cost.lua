@@ -32,10 +32,10 @@ local function setup()
 	env.CONST = {
 		COST_TYPE = {DIAMOND = 1, RES = 2, ITEM = 3},
 		ITEM_KIND = {RES = 1, HERO_CHIP = 2, GIFT = 3, HERO_EQUIP = 4, RANDOM_REWARD = 5, SOLDIER = 6, VIP = 7},
-		EVENT = {ON_ITEM_CHANGE = "on_item_change"},
+		EVENT = {ON_ITEM_CHANGE = "on_item_change", ON_USER_LOGOUT = "on_user_logout"},
 	}
 	user.events = {}
-	env.EVENT = {dispatch = function(...) user.events[#user.events + 1] = {...} end}
+	env.EVENT = {listen = function() end, dispatch = function(...) user.events[#user.events + 1] = {...} end}
 	env.USER_MGR = {try_init_user = function() return user end}
 	env.DATA_COMMON = {get_item_kind = function() return 1 end, can_overlap = function() return true end}
 	env.ORM = {load = function() return {_items = {}}, false end, CLS_USER_ITEM_DOC = "x"}

@@ -30,7 +30,7 @@ local function fixture()
         CONST = {MARCH_STATE = {MOVING = 1, ARRIVED = 2}, EVENT = {ON_USER_LOGIN = 1}}, TIME = {now = function() return 100 end},
         DATA_COMMON = {TARGET_TYPE = {RETURN_CITY = 1, ATTACK_CITY = 5, REDEPLOY = 6}, TROOP_STATE = {SIEGE = 4},
             get_march_speed = function(kind) return kind == 6 and 1.2 or kind == 1 and 1 or .6 end},
-        MONGO_SLAVE = {flush_sync = no_write}, EVENT = {listen = function() end, dispatch = no_write},
+        MONGO_SLAVE = {flush_snapshot = no_write}, EVENT = {listen = function() end, dispatch = no_write},
         for_maker = {}, for_caller = {s2c_req_march_route = function(fd, reply)
             assert(fd == 7); F.replies[#F.replies + 1] = reply end}}
     shared.MARCH_PATH = load_mod('common/march_path.lua', {})

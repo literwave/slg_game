@@ -1,21 +1,12 @@
 -- activity/rank/mgr.lua：zset 排名，同分先到的靠前，重启后从持久化分数重建
 
-local MGR_FILE = "logic/service/activity/module/rank/mgr.lua"
+local store = dofile("test/helpers/rank_store.lua")
 
 local POWER = 1
 
 local function setup(doc)
-	local env = setmetatable({}, {__index = _G})
-	local clock = {now = 1000}
-	doc = doc or {_power_tbl = {}, _city_tbl = {}, _kill_tbl = {}, _alliance_power_tbl = {}}
-	env.DATA_COMMON = {RANK_TYPE = dofile("game_common/server/enum/RankTypeEnum.lua"),
-		get_rank_max = function(kind) return kind == 4 and 50 or 100 end}
-	env.TIME = {os_bj_sec = function() return clock.now end}
-	env.ORM = {load = function() return doc end}
-	env.MONGO_SLAVE = {COL = {}, system_startup = function() end}
-	assert(loadfile(MGR_FILE, "t", env))()
-	env.__init__()
-	return env, doc, clock
+	local env, state = store.setup(doc)
+	return env, state.rows, state
 end
 
 local T = {}
@@ -44,8 +35,8 @@ end
 
 function T.rebuild_from_doc()
 	local _, doc = setup()
-	doc._power_tbl[1] = {_score = 100, _time = 5}
-	doc._power_tbl[2] = {_score = 100, _time = 3}
+	doc["1:1"] = {_rank_type = 1, _user_id = 1, _score = 100, _time = 5, _name = "", _head_icon = 0}
+	doc["1:2"] = {_rank_type = 1, _user_id = 2, _score = 100, _time = 3, _name = "", _head_icon = 0}
 	local M = setup(doc)
 	assert(M.get_rank(POWER, 2) == 1 and M.get_rank(POWER, 1) == 2)
 end
@@ -85,6 +76,7 @@ function T.new_boards_limit_and_restart()
 	assert(M.get_rank_list(3, 1, 20, 1).self.score == 1, "未上榜仍带真实分数")
 	assert(#M.get_rank_list(4, 45, 20, 55).list == 6)
 	assert(#M.get_rank_list(4, 51, 20, 55).list == 0)
+	M.MONGO_SLAVE.flush_sync()
 	local restarted = setup(doc)
 	assert(restarted.get_rank(4, 55) == 1)
 	restarted.set_score(4, 55, 0)
